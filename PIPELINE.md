@@ -17,8 +17,10 @@ source reproduces it exactly. Index-based seeding cannot survive being split.
 **No detectability rejection.** All three populations are drawn from the
 unbiased prior. `SNR_tot` is recorded per companion but never used to accept or
 reject; the high-SNR sample is selected afterwards as the top
-`HIGH_SNR_FRACTION` by recorded `SNR_tot`. At 4M stars, rejection sampling to a
-fixed threshold is expensive and bakes the threshold into the data.
+`HIGH_SNR_MIN` on every injected companion. At 4M stars, rejection sampling to a
+fixed threshold is expensive and bakes the threshold into the data; applying the
+floor afterwards leaves it an analysis choice, and characterization applies the
+same rule to the same rows.
 
 ## Setup
 
@@ -40,25 +42,40 @@ uv sync
 MPICC=$(which mpicc) uv pip install --no-binary=mpi4py mpi4py
 ```
 
-Without `mpi4py`, `run_mpi.py` runs as a single rank, which is what makes it
+Without `mpi4py`, `simulate_mpi.py` runs as a single rank, which is what makes it
 usable on a laptop. `uv sync --extra analysis` adds scipy and h5py for
 `epochalypse.fitting`, which does not run against this catalog yet.
 
 ### Inputs
 
-Four static files under `data/g23h_epochalypse_stars/` and `data/`, none
-produced here. The two large ones are gitignored; the small ones are committed.
-Paths are `G23H_SAMPLE` and `SCANLAW_DR4` in
-`src/epochalypse/config.py`.
+Two kinds, with different lifecycles.
 
-| file | what |
+**The delivered dataset** — the parent sample and the DR4 scan law, ~12 GB — is
+relocatable with `--data-root`, because it changes from run to run and does not
+belong in a home directory. Both files sit directly under that root, so moving
+the dataset is a straight copy:
+
+```bash
+--data-root $DATA_ROOT      # e.g. <scratch>/project-data/epochalypse
+```
+
+| directly under `$DATA_ROOT` | what |
 | --- | --- |
-| `G23H_within_250pc.arrow` (1.2 GB) | parent sample, one row per DR2 cross-match |
-| `scanlaw_dr4_within_250pc_hpx64_transit_loss10.arrow` (10.7 GB) | DR4 scan law, one row per FoV transit |
-| `G23H_sample_subset.arrow` (13 MB, committed) | 16k-star smoke-test sample |
-| `pecaut_mamajek.txt`, `gost_fov_counts_dr4.fits` | P&M13 main sequence; GOST healpix map (sky figure) |
+| `G23H_within_500pc.arrow` (1.2 GB) | parent sample, one row per DR2 cross-match |
+| `scanlaw_dr4_within_500pc_hpx64_transit_loss10.arrow` (10.7 GB) | DR4 scan law, one row per FoV transit |
 
-For a smoke test, point `G23H_SAMPLE` at the committed subset instead.
+`G23H_NAME` and `SCANLAW_NAME` in `src/epochalypse/config.py` are the filenames;
+point `G23H_NAME` at the committed `G23H_sample_subset.arrow` to run the whole
+pipeline against the 16k smoke sample.
+
+**Reference data** is committed, versioned with the code, and never configured —
+`data/pecaut_mamajek.txt` (the P&M13 sequence) and `data/gost_fov_counts_dr4.fits`
+(the GOST healpix map, sky figure only). A fresh clone always has them, so the
+tests need no dataset.
+
+Outputs are relocatable the same way, with `--output-root`; the periodogram half
+adds `--catalog-root` for reading a catalog someone else generated. All five
+`scripts/mpi/*.sh` scripts source `scripts/mpi/env.sh`.
 
 The scan law **must be grouped by `gaia_source_id`**, one contiguous block per
 source, or the offset index is meaningless. `build_indices` verifies this and
@@ -71,18 +88,18 @@ raises naming the offending ids rather than returning the wrong epochs.
 python scripts/generate_catalog.py --stages stars index
 
 # 2. simulate -- the expensive part, and the only one that needs a cluster
-mpirun python scripts/run_mpi.py
+mpirun python scripts/simulate_mpi.py
 
 # 3. merge the shards, select the high-SNR views, draw the figures
 python scripts/generate_catalog.py --stages merge select figures
 ```
 
-Locally, `run_mpi.py` falls back to a single rank when mpi4py is absent, which
+Locally, `simulate_mpi.py` falls back to a single rank when mpi4py is absent, which
 is how you test it:
 
 ```bash
-python scripts/run_mpi.py --limit 200         # one process, no MPI
-mpirun -n 8 python scripts/run_mpi.py         # 8 local processes
+python scripts/simulate_mpi.py --limit 200         # one process, no MPI
+mpirun -n 8 python scripts/simulate_mpi.py         # 8 local processes
 python scripts/simulate_source.py 5484066448309985152   # one star, printed
 ```
 
@@ -96,76 +113,51 @@ died.
 
 ## On a Slurm cluster
 
-`run_mpi.py` is SPMD, not a worker pool: every rank runs the same code, asks
-`COMM_WORLD` which rank it is, takes its own contiguous slice of the source
-list, and writes its own files. Ranks talk once, in a `gather` at the end, to
-print a summary. So there is **no** `-m mpi4py.futures` and no `--mpi` flag —
-and no `-n` on `mpirun` either, since the allocation already fixes the rank
-count. `--ntasks-per-node` is the knob that matters, because per-rank memory is
-what binds (below), not cores.
+The submit scripts live in `scripts/mpi/` and are the source of truth —
+`1-prep.sh`, `2-sim.sh`, `3-finish.sh` for the catalog, then
+`4-periodograms.sh` and `5-periodogram-finish.sh` for the characterization.
 
-**Prep** (serial, memory-hungry — not a login-node job; see below):
+All three roots live in one place, `scripts/mpi/env.sh`, which every script
+sources:
 
 ```bash
-#!/bin/zsh -l
-#SBATCH -J epochalypse-prep
-#SBATCH -o logs/epochalypse-prep.o%j
-#SBATCH -e logs/epochalypse-prep.e%j
-#SBATCH -N 1
-#SBATCH -c 1
-#SBATCH --mem=300G
-#SBATCH -t 4:00:00
-#SBATCH -p cca
-#SBATCH --constraint=rome
-
-cd /mnt/ceph/users/apricewhelan/projects/epochalypse/parallelized
-source .venv/bin/activate
-
-date
-python scripts/generate_catalog.py --stages stars index
-date
+export DATA_ROOT=<scratch>/project-data/epochalypse      # delivered inputs, ~12 GB
+export OUT_ROOT=<scratch>/project-outputs/epochalypse    # the catalog, ~50 GB
+export PGRAM_ROOT=$OUT_ROOT/periodograms                 # raw curves, ~915 GB
 ```
 
-**Simulate**:
+The characterization stages pass `--catalog-root $OUT_ROOT`: the catalog they
+read is what the generator wrote. `--catalog-root` is a separate flag only so
+you can point it at a catalog someone else generated and delivered as a
+directory.
+
+Each script does `cd "${SLURM_SUBMIT_DIR:-.}"`, so **sbatch from the repo root**.
+`mkdir -p logs` first, then chain them:
 
 ```bash
-#!/bin/zsh -l
-#SBATCH -J epochalypse-sim
-#SBATCH -o logs/epochalypse-sim.o%j
-#SBATCH -e logs/epochalypse-sim.e%j
-#SBATCH -N 8
-#SBATCH --ntasks-per-node=64
-#SBATCH -t 2:00:00
-#SBATCH -p cca
-#SBATCH --constraint=rome
-
-cd /mnt/ceph/users/apricewhelan/projects/epochalypse/parallelized
-source .venv/bin/activate
-
-# one BLAS thread per rank: with tens of ranks per node the per-rank thread
-# pools would otherwise oversubscribe the cores
-export OMP_NUM_THREADS=1
-export JAX_PLATFORMS=cpu          # skip the GPU probe on CPU nodes
-
-date
-mpirun python scripts/run_mpi.py --skip-existing
-date
+prep=$(sbatch --parsable scripts/mpi/1-prep.sh)
+sim=$(sbatch --parsable --dependency=afterok:$prep scripts/mpi/2-sim.sh)
+sbatch --dependency=afterok:$sim scripts/mpi/3-finish.sh
 ```
 
-Note the scripts activate `.venv` and call `python` rather than using
-`uv run`: under `mpirun` every rank would otherwise re-check the environment at
-once, which is both pointless and unkind to the filesystem. Run `uv sync` once,
-before submitting.
+Three things about those scripts that are easy to get wrong:
 
-`mkdir -p logs` first, then chain the three steps:
+**No `-n` on `mpirun`, and no `mpi4py.futures`.** Both MPI stages are SPMD, not
+worker pools: every rank runs the same code, asks `COMM_WORLD` which rank it is,
+takes its own contiguous slice, and writes its own files. Ranks talk once, in a
+`gather` at the end. The allocation already fixes the rank count, so
+`--ntasks-per-node` is the knob that matters — see below, because it is memory
+that binds, not cores.
 
-```bash
-prep=$(sbatch --parsable prep.sh)
-sim=$(sbatch --parsable --dependency=afterok:$prep sim.sh)
-sbatch --dependency=afterok:$sim finish.sh   # --stages merge select figures
-```
+**`OMP_NUM_THREADS=1`.** With tens of ranks per node the per-rank BLAS thread
+pools oversubscribe the cores, and that is invisible until the job is slow.
+`JAX_PLATFORMS=cpu` also skips a pointless GPU probe on the simulation side.
 
-`--skip-existing` on the simulate step means a requeue after a node failure only
+**Activate `.venv` and call `python`, not `uv run`.** Under `mpirun` every rank
+would otherwise re-check the environment at once. Run `uv sync` once before
+submitting.
+
+`--skip-existing` on both MPI stages means a requeue after a node failure only
 redoes the ranks that died, so it costs nothing to leave on.
 
 ### Per-rank memory sets `--ntasks-per-node`
@@ -199,10 +191,10 @@ would mostly remove it.
 | `0_companion` | simulated | noise-only control |
 | `1_companion` | simulated | one companion, unbiased prior |
 | `2_companion` | simulated | two companions, unbiased prior |
-| `*_high_snr` | selected | top 1% of the above by `SNR_tot` |
+| `*_high_snr` | selected | every companion clears `SNR_tot >= 5` |
 
-The high-SNR views are a quantile over a column, so re-selecting at a different
-fraction costs seconds and needs no regeneration.
+The high-SNR views are a threshold on a recorded column, so re-selecting at a
+different floor costs seconds and needs no regeneration.
 
 ## Layout
 
@@ -216,16 +208,20 @@ epochalypse/
 │   ├── planets.py              per-source companion draw (Roche + Hill screens)
 │   ├── astrometry.py           per-source epoch simulation + ShardWriter
 │   ├── figures.py              the catalog figures
-│   └── fitting.py              periodogram characterization -- not ported
+│   ├── mpi.py                  the MPI plumbing both parallel stages share
+│   ├── shardio.py              the buffered parquet writer they share
+│   └── periodogram/            the characterization half (see PERIODOGRAMS.md)
 ├── scripts/                    the entry points
 │   ├── generate_catalog.py     stages: stars, index, merge, select, figures
-│   ├── run_mpi.py              the simulation; MPI ranks, the cluster entry point
+│   ├── simulate_mpi.py         the simulation; MPI ranks, the cluster entry point
 │   ├── simulate_source.py      print one star, for inspection
-│   └── run_periodograms.py     characterization -- not ported
+│   ├── characterize_mpi.py     the periodogram search; MPI ranks
+│   ├── characterize_finish.py  stages: calibrate, census, merge
+│   └── periodogram_source.py   print one system's periodogram, for inspection
 ├── pyproject.toml              dependencies; uv.lock pins them
 ├── data/                       static inputs (see Setup)
 ├── outputs/                    generated: data/ (shards, indices, truth tables), figures/
-└── tests/test_pipeline.py      self-check for the seeding, priors, and screens
+└── tests/                      test_pipeline.py, test_periodograms.py
 ```
 
 ## Why the lookup layer exists
@@ -268,6 +264,6 @@ p = 0.2 on mass; KS p = 0.08–0.9 against the serial pipeline across sma, mass,
 eccentricity, inclination, period, alpha, SNR). Any previously generated
 1- or 2-companion catalog must be regenerated rather than mixed with new output.
 
-Not yet done: the analysis side (`scripts/run_periodograms.py`) still assumes the
-serial catalog's file layout and population names, so the characterization step
-needs porting to the parquet shards before it can run against this catalog.
+The characterization half now runs against the parquet shards -- see
+`PERIODOGRAMS.md`. The old serial analysis module was deleted with it; two of
+its capabilities have no successor in the kepmodel path and are noted there.

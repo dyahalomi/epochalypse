@@ -18,6 +18,7 @@ The scan-law index stores (offset, length) per source id, which requires the
 file to be grouped by source id -- `build_indices` verifies this and reports the
 offending ids rather than silently returning the wrong epochs.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -60,12 +61,18 @@ def build_indices(*, overwrite=False, verbose=True):
     scan_index = index_dir / "scanlaw_index.parquet"
     if star_index.exists() and scan_index.exists() and not overwrite:
         if verbose:
-            print(f"  indices already built in {index_dir} (pass --overwrite to rebuild)")
+            print(
+                f"  indices already built in {index_dir} (pass --overwrite to rebuild)"
+            )
         return {"stars": star_index, "scanlaw": scan_index}
 
     # --- stellar catalog: id -> row number ---
-    stars = pd.read_csv(C.stars_csv(), dtype={"gaia_source_id": str},
-                        usecols=["gaia_source_id", "sig_AL"], low_memory=False)
+    stars = pd.read_csv(
+        C.stars_csv(),
+        dtype={"gaia_source_id": str},
+        usecols=["gaia_source_id", "sig_AL"],
+        low_memory=False,
+    )
     rows = np.arange(len(stars), dtype=np.int64)
 
     # A handful of high-RUWE binaries carry no per-CCD AL noise calibration.
@@ -74,22 +81,27 @@ def build_indices(*, overwrite=False, verbose=True):
     # iterates -- so they can never reach a shard.
     usable = np.isfinite(stars["sig_AL"].to_numpy(dtype=float))
     if not usable.all():
-        print(f"  excluded {int((~usable).sum())} stars with no sig_AL (no noise model)")
+        print(
+            f"  excluded {int((~usable).sum())} stars with no sig_AL (no noise model)"
+        )
     stars, rows = stars[usable], rows[usable]
 
     ids = _normalize_ids(stars["gaia_source_id"].to_numpy())
     if pd.Series(ids).duplicated().any():
-        raise ValueError("the stellar catalog has duplicate gaia_source_id values; "
-                         "the per-source lookup needs them unique")
-    pd.DataFrame({"gaia_source_id": ids.to_numpy(), "row": rows}) \
-        .to_parquet(star_index, index=False)
+        raise ValueError(
+            "the stellar catalog has duplicate gaia_source_id values; "
+            "the per-source lookup needs them unique"
+        )
+    pd.DataFrame({"gaia_source_id": ids.to_numpy(), "row": rows}).to_parquet(
+        star_index, index=False
+    )
     if verbose:
         print(f"  stars index   : {len(ids):,} sources -> {star_index}")
 
     # --- scan law: id -> (offset, length) ---
-    table = _read_arrow(C.SCANLAW_DR4)
+    table = _read_arrow(C.scanlaw_dr4())
     scan_ids = _normalize_ids(table.column("gaia_source_id").to_numpy())
-    codes, uniques = pd.factorize(scan_ids)          # preserves order of appearance
+    codes, uniques = pd.factorize(scan_ids)  # preserves order of appearance
     boundaries = np.flatnonzero(np.diff(codes)) + 1
     starts = np.concatenate([[0], boundaries])
     ends = np.concatenate([boundaries, [len(codes)]])
@@ -103,16 +115,22 @@ def build_indices(*, overwrite=False, verbose=True):
     if repeated:
         raise ValueError(
             f"{len(repeated)} source ids appear in more than one block of "
-            f"{C.SCANLAW_DR4} (e.g. {repeated[:3]}); sort the scan law by "
-            "gaia_source_id before indexing")
+            f"{C.scanlaw_dr4()} (e.g. {repeated[:3]}); sort the scan law by "
+            "gaia_source_id before indexing"
+        )
 
-    pd.DataFrame({"gaia_source_id": uniques[codes[starts]],
-                  "offset": starts.astype(np.int64),
-                  "length": (ends - starts).astype(np.int64)}) \
-        .to_parquet(scan_index, index=False)
+    pd.DataFrame(
+        {
+            "gaia_source_id": uniques[codes[starts]],
+            "offset": starts.astype(np.int64),
+            "length": (ends - starts).astype(np.int64),
+        }
+    ).to_parquet(scan_index, index=False)
     if verbose:
-        print(f"  scanlaw index : {len(starts):,} sources, {len(codes):,} transits "
-              f"-> {scan_index}")
+        print(
+            f"  scanlaw index : {len(starts):,} sources, {len(codes):,} transits "
+            f"-> {scan_index}"
+        )
     return {"stars": star_index, "scanlaw": scan_index}
 
 
@@ -126,15 +144,26 @@ class SourceCatalog:
     # Reading only these is what keeps a rank near 2 GB instead of 5.5 GB at 4M
     # stars, which is what sets how many ranks fit on a node. A column added to
     # the truth row must be added here too -- the failure is a loud KeyError.
-    COLUMNS = ("gaia_source_id", "source_id_dr2", "parallax", "pmra_dr3", "pmdec_dr3",
-               "mass_interp", "radius_interp", "sig_AL", "sig_cal", "sig_att_radec",
-               "astrometric_n_good_obs_al_dr3", "astrometric_matched_transits_dr3",
-               "astrometric_params_solved_dr3")
+    COLUMNS = (
+        "gaia_source_id",
+        "source_id_dr2",
+        "parallax",
+        "pmra_dr3",
+        "pmdec_dr3",
+        "mass_interp",
+        "radius_interp",
+        "sig_AL",
+        "sig_cal",
+        "sig_att_radec",
+        "astrometric_n_good_obs_al_dr3",
+        "astrometric_matched_transits_dr3",
+        "astrometric_params_solved_dr3",
+    )
 
     def __init__(self):
         index = pd.read_parquet(C.index_dir() / "stars_index.parquet")
         self._row_of = dict(zip(index["gaia_source_id"], index["row"]))
-        self._frame = None      # loaded lazily; see `_stars`
+        self._frame = None  # loaded lazily; see `_stars`
 
     @property
     def _stars(self):
@@ -142,8 +171,11 @@ class SourceCatalog:
         # memory-mapped. Loaded on first use so that listing ids costs nothing.
         if self._frame is None:
             self._frame = pd.read_csv(
-                C.stars_csv(), low_memory=False, usecols=list(self.COLUMNS),
-                dtype={"gaia_source_id": str, "source_id_dr2": str})
+                C.stars_csv(),
+                low_memory=False,
+                usecols=list(self.COLUMNS),
+                dtype={"gaia_source_id": str, "source_id_dr2": str},
+            )
             for column in ("gaia_source_id", "source_id_dr2"):
                 self._frame[column] = _normalize_ids(self._frame[column].to_numpy())
         return self._frame
@@ -177,9 +209,10 @@ class ScanLawStore:
 
     def __init__(self):
         index = pd.read_parquet(C.index_dir() / "scanlaw_index.parquet")
-        self._span_of = dict(zip(index["gaia_source_id"],
-                                 zip(index["offset"], index["length"])))
-        self._table = _read_arrow(C.SCANLAW_DR4)
+        self._span_of = dict(
+            zip(index["gaia_source_id"], zip(index["offset"], index["length"]))
+        )
+        self._table = _read_arrow(C.scanlaw_dr4())
 
     def __contains__(self, gaia_source_id):
         return str(gaia_source_id) in self._span_of
@@ -191,29 +224,32 @@ class ScanLawStore:
             raise KeyError(f"no scan law for gaia_source_id {key}")
         offset, length = self._span_of[key]
         block = self._table.slice(int(offset), int(length))
-        frame = block.select([c for c in self.COLUMNS if c in block.schema.names]).to_pandas()
+        frame = block.select(
+            [c for c in self.COLUMNS if c in block.schema.names]
+        ).to_pandas()
         return frame.sort_values("obs_time_tcb_jd").reset_index(drop=True)
 
 
 # --------------------------------------------------------------------------
 # The high-SNR view over a generated population
 # --------------------------------------------------------------------------
-def select_high_snr(frame, fraction=None):
-    """The top `fraction` of systems by detectability.
+def select_high_snr(frame, snr_min=None):
+    """Systems in which *every* injected companion clears SNR_tot >= `snr_min`.
 
-    A system's detectability is the largest SNR_tot over its companions, matching
-    how the old generated high-SNR populations required *every* companion to be
-    detectable only in the sense of being drawn from the same threshold -- here
-    the ranking is per system and the threshold is a quantile, so the size of the
-    selection is fixed and the cut value is whatever the data says it is.
+    This is the whole of the "high-SNR population" -- there is no separate run.
+    All three populations are drawn from the unbiased prior with SNR_tot
+    recorded rather than rejected on, so the floor is an analysis choice applied
+    after the fact. A companion whose SNR_tot is not finite never clears it.
+
+    One caveat a post-hoc cut carries and rejection sampling did not: stars
+    enter weighted by their acceptance probability, so the high-SNR populations
+    come from a slightly nearer subset of the parent sample.
     """
-    fraction = C.HIGH_SNR_FRACTION if fraction is None else fraction
+    snr_min = C.HIGH_SNR_MIN if snr_min is None else float(snr_min)
     columns = [c for c in ("snr_total_1", "snr_total_2") if c in frame.columns]
     if not columns:
-        raise KeyError("no snr_total_* columns to rank on")
-    with np.errstate(invalid="ignore"):
-        score = np.nanmax(frame[columns].to_numpy(float), axis=1)
-    frame = frame.assign(_snr_rank=score)
-    n_keep = max(1, int(round(fraction * len(frame))))
-    selected = frame.nlargest(n_keep, "_snr_rank").drop(columns="_snr_rank")
+        raise KeyError("no snr_total_* columns to cut on")
+    snr = frame[columns].to_numpy(float)
+    keep = np.isfinite(snr).all(axis=1) & (snr >= snr_min).all(axis=1)
+    selected = frame[keep]
     return selected.sort_values("gaia_source_id").reset_index(drop=True)
