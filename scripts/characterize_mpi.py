@@ -11,7 +11,7 @@ MPI-IO or parallel HDF5. MPI is being used purely as a launcher.
 This is the same SPMD shape as the generator's `run_mpi.py`, and for the same
 reason, but the unit of work is different. The generator sliced the *source
 list* and each rank wrote its own shard. Here the shards already exist, so the
-work unit is one of them: 320 shards x 3 populations = 960 units, each ~17,890
+work unit is one of them: 320 shards x 3 populations = 960 units, each ~15,751
 systems. Slices are contiguous, so a rank reads a contiguous region of one
 population's directory rather than scattering reads across all 320 files.
 
@@ -57,7 +57,7 @@ def write_manifest(segments, args, size):
     """Everything needed to interpret the output, written before any of it exists.
 
     The grid, the noise model, the classifier thresholds and the code version.
-    A power array is 16,641 float32 and means nothing without the period axis
+    A power array is 15,777 float32 and means nothing without the period axis
     and the decimation factor; a `top_power` means nothing without knowing
     whether jitter was fitted. Both live here, and in `period_grid.parquet`.
     """

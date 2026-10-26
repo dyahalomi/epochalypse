@@ -3,10 +3,14 @@
 Generates the simulated Gaia DR4 epoch-astrometry catalog for ~4 million stars.
 Self-contained: everything it reads and writes is under this directory.
 
-The physics is the serial pipeline's: the same priors, the same Roche-lobe and
-Hill-stability screens, the same jaxoplanet reflex model and DR3-calibrated
-noise model, the same astropy-derived constants. What changed is how the work is
-divided, and how the high-SNR sample is defined.
+The physics is the serial pipeline's -- the same Hill-stability screen,
+jaxoplanet reflex model, DR3-calibrated noise model, and astropy-derived
+constants -- with two deliberate exceptions. The semi-major axis prior is now
+log-uniform on 0.03–100 AU (was 0.001–100 AU behind a per-star Roche-lobe
+screen); at 0.03 AU no star in the mass-radius table overfills its lobe, so
+the screen is gone. And only main-sequence stars are simulated (see Status).
+What else changed is how the work is divided, and how the high-SNR sample is
+defined.
 
 **Per-source determinism.** Every random stream is seeded from the Gaia source
 id, `blake2s(master_seed : population : gaia_source_id)`, not from a row index.
@@ -205,7 +209,7 @@ epochalypse/
 │   ├── constants.py            physical + mission constants, from astropy
 │   ├── stars.py                parent stellar sample
 │   ├── sources.py              per-source lookup + the high-SNR selection
-│   ├── planets.py              per-source companion draw (Roche + Hill screens)
+│   ├── planets.py              per-source companion draw (Hill screen)
 │   ├── astrometry.py           per-source epoch simulation + ShardWriter
 │   ├── figures.py              the catalog figures
 │   ├── mpi.py                  the MPI plumbing both parallel stages share
@@ -263,6 +267,29 @@ untouched, and old-vs-new agrees distribution-by-distribution (two-sample KS
 p = 0.2 on mass; KS p = 0.08–0.9 against the serial pipeline across sma, mass,
 eccentricity, inclination, period, alpha, SNR). Any previously generated
 1- or 2-companion catalog must be regenerated rather than mixed with new output.
+
+**Since then the `a` prior has changed** to 0.03–100 AU with no Roche screen, so
+the comparisons above describe the old prior, not the current catalog. `sma`
+now has a hard inner edge at 0.03 AU rather than a smeared per-star one, and
+`sma` and mass are independent (the screen used to reject heavy companions at
+small `a`). The periodogram grid moved with it: `P_MIN` to 1.3e-3 yr and `P_MAX` to
+3700 yr, bracketing every period the prior can inject.
+
+**The simulated sample is main-sequence stars only.** Mass and radius are read
+off the Pecaut & Mamajek dwarf sequence from M_G alone, so a subgiant or giant
+would be given a dwarf's mass. `sources.simulated_sources` now keeps a star only
+when its colour and magnitude together sit within −1.0 ≤ ΔM_G ≤ +1.0 of the
+dwarf ridge (`config.MAIN_SEQUENCE_ONLY`, `MS_BRIGHT_EDGE`, `MS_FAINT_EDGE`;
+the label from `analysis/star_sky_scanlaw_500pc.ipynb` §4.3, reproduced star
+for star), and only when it has both per-CCD noise terms, `sig_AL` and
+`sig_att_radec` -- the simulator draws from both. `stars.csv` still holds every
+star; the cut is made when the index is built, so it needs `generate_catalog.py
+--stages index --overwrite` rerun (without `--overwrite` the existing index is
+kept), not stage 1. On the 500 pc sample that is 5,040,328 of
+5,725,068 stars: 496 lack a noise term, 622,252 sit above the band (giants,
+subgiants, reddened dwarfs, pre-main-sequence stars), 59,956 below it, and 2,036
+are outside the ridge's colour range. Unresolved binaries up to ~0.75 mag above
+the ridge are kept by design, with a single-dwarf mass that overestimates them.
 
 The characterization half now runs against the parquet shards -- see
 `PERIODOGRAMS.md`. The old serial analysis module was deleted with it; two of

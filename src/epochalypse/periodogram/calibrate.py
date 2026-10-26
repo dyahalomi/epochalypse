@@ -10,11 +10,11 @@ measured: the quantile of `0_companion` that leaves a `TARGET_FP` false-positive
 rate.
 
 Two things make that calibration stronger here than in the 10,000-system
-notebook it comes from. The control is the *same 5.7 M stars* as the two
+notebook it comes from. The control is the *same 5.0 M stars* as the two
 companion populations -- the generator draws all three from the same parent
 sample, so every star's parallax, transit count and per-epoch precision appears
-in the null and in the signal. And the quantile is measured on 5.7 M systems
-rather than 10,000, so the 99.5th percentile is set by ~29,000 systems in the
+in the null and in the signal. And the quantile is measured on 5.0 M systems
+rather than 10,000, so the 99.5th percentile is set by ~25,000 systems in the
 tail rather than by ~50: the threshold stops being the noisy quantity it is at
 notebook scale.
 
@@ -51,7 +51,7 @@ def thresholds_from_null(top_power, accel_delta_chi2, target_fp=None):
 def calibrate(population="0_companion", target_fp=None):
     """Read the control population's characterization and derive the thresholds.
 
-    Only two columns are read off disk. At 5.7 M rows that is ~90 MB rather than
+    Only two columns are read off disk. At 5.0 M rows that is ~80 MB rather than
     the ~2 GB the whole table would be, which is the difference between this
     running on a login node and not.
     """
@@ -137,7 +137,7 @@ def select_high_snr(frame, snr_min=None):
 def census(population, thr_orbit=None, thr_accel=None, columns=None):
     """Class counts for one population, and for its high-SNR subset.
 
-    Reads only the columns the classification needs, so this runs over 5.7 M
+    Reads only the columns the classification needs, so this runs over 5.0 M
     systems in seconds and is the cheapest check that a run came out sane.
     """
     needed = [
@@ -174,7 +174,7 @@ def census(population, thr_orbit=None, thr_accel=None, columns=None):
 def load_characterization(population, columns=None, high_snr=False):
     """One population's characterization table as a DataFrame, flags applied.
 
-    `columns` is worth passing: the full table is ~70 columns over 5.7 M rows,
+    `columns` is worth passing: the full table is ~70 columns over 5.0 M rows,
     which is ~3 GB in pandas, and the three paper figures each need under a
     dozen of them. The columns the calibration needs are added automatically.
 

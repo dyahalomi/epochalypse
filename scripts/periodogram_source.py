@@ -28,7 +28,7 @@ from epochalypse.periodogram.shards import ShardReader, discover_shards
 def locate(population, gaia_source_id):
     """`(shard, n_shards, shard_row)` of one source, by scanning the truth shards.
 
-    Only the id column of each truth shard is read -- 17,890 values per file, so
+    Only the id column of each truth shard is read -- 15,751 values per file, so
     the whole scan is a few tens of MB. There is a lookup index in the generated
     catalog (`data/index/`) that would answer this without a scan, but it maps
     ids to *scan-law* rows, not to shard positions, and building a second index

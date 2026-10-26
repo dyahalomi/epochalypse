@@ -10,7 +10,7 @@ are scattered across every file. That is exactly right when the analysis touches
 Here the analysis touches all of it, once. So the unit of work is the shard the
 generator already wrote, read start to finish, and nothing is materialized:
 
-    shard 00007 of 00320  ->  17,890 systems  ->  17,890 characterization rows
+    shard 00007 of 00320  ->  15,751 systems  ->  15,751 characterization rows
 
 Two facts about `astrometry.ShardWriter`'s output make this cheap, and both are
 checked by `ShardReader` rather than assumed:

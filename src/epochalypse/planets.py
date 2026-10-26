@@ -13,9 +13,10 @@ stars:
    rejection loop that dominated the cost of the old high-SNR populations and
    turns the threshold into an analysis choice.
 
-The rejection that remains is over *physical possibility* only: the star must
-fit inside its Roche lobe, and a two-companion pair must be non-crossing and
-Hill-stable.
+The rejection that remains is over *physical possibility* only: a
+two-companion pair must be non-crossing and Hill-stable. Single companions are
+never rejected -- `config.A_MIN_AU` already sits outside every star's Roche
+lobe.
 """
 
 from __future__ import annotations
@@ -25,10 +26,6 @@ import hashlib
 import numpy as np
 
 from . import config as C
-
-# Bail-out for a star with no physically allowed orbit anywhere in the prior
-# (the Roche floor rejects ~15-25% of draws, so reaching this means unusable).
-MAX_DRAWS = 10_000
 
 
 # --------------------------------------------------------------------------
@@ -61,12 +58,12 @@ def eggleton_lobe_fraction(q):
 
 
 def roche_lobe_min_separation(radius_rsun, mstar_msun, mp_msun):
-    """Smallest separation [AU] at which the star still fits inside its lobe."""
-    return (
-        C.ROCHE_SAFETY_FACTOR
-        * (radius_rsun * C.RSUN_IN_AU)
-        / eggleton_lobe_fraction(mstar_msun / mp_msun)
-    )
+    """Smallest separation [AU] at which the star still fits inside its lobe.
+
+    Not applied per draw; `test_pipeline` uses it to check that A_MIN_AU clears
+    the worst case in the mass-radius table.
+    """
+    return (radius_rsun * C.RSUN_IN_AU) / eggleton_lobe_fraction(mstar_msun / mp_msun)
 
 
 def classify_with_resonance(mu1, mu2, a1, a2, e1, e2):
@@ -128,8 +125,8 @@ def star_noise_terms(star):
 def draw_companions(population, star, *, n_transits, sigma_single):
     """Draw this star's companions. Returns a list of dicts (empty for the control).
 
-    Raises RuntimeError if no physically allowed configuration is found within
-    the draw budget, which the caller records as a skipped source.
+    Raises RuntimeError if no Hill-stable pair is found within
+    MAX_STABILITY_RETRIES, which the caller records as a skipped source.
     """
     n_companions = C.POPULATIONS[population]
     if n_companions == 0:
@@ -140,7 +137,6 @@ def draw_companions(population, star, *, n_transits, sigma_single):
     )
 
     mstar = float(star["mass_interp"])
-    rstar = float(star["radius_interp"])
     parallax = float(star["parallax"])
 
     log_a = (np.log10(C.A_MIN_AU), np.log10(C.A_MAX_AU))
@@ -148,31 +144,27 @@ def draw_companions(population, star, *, n_transits, sigma_single):
     a_crit = (C.BASELINE_YEARS**2 * mstar) ** (1.0 / 3.0)
 
     def draw_one():
-        """One companion from the prior, rejecting Roche-lobe-violating draws."""
-        for _ in range(MAX_DRAWS):
-            sma = 10 ** rng.uniform(*log_a)
-            mass = 10 ** rng.uniform(*log_m)
-            mass_msun = mass * C.MJUP_IN_MSUN
-            if sma < roche_lobe_min_separation(rstar, mstar, mass_msun):
-                continue
-            # S/N is recorded, not used to accept or reject
-            alpha = mass_msun / (mstar + mass_msun) * sma * parallax
-            snr_single = (
-                alpha / sigma_single
-                if sigma_single and np.isfinite(sigma_single)
-                else np.nan
-            )
-            snr_eff = snr_single / (1.0 + (sma / a_crit) ** 3)
-            snr_total = np.sqrt(n_transits) * snr_eff if n_transits else np.nan
-            return dict(
-                sma=float(sma),
-                mass_pl=float(mass),
-                alpha_mas=float(alpha),
-                snr_single=float(snr_single),
-                snr_eff=float(snr_eff),
-                snr_total=float(snr_total),
-            )
-        raise RuntimeError(f"no Roche-allowed companion within {MAX_DRAWS} draws")
+        """One companion from the prior; every draw is accepted."""
+        sma = 10 ** rng.uniform(*log_a)
+        mass = 10 ** rng.uniform(*log_m)
+        mass_msun = mass * C.MJUP_IN_MSUN
+        # S/N is recorded, not used to accept or reject
+        alpha = mass_msun / (mstar + mass_msun) * sma * parallax
+        snr_single = (
+            alpha / sigma_single
+            if sigma_single and np.isfinite(sigma_single)
+            else np.nan
+        )
+        snr_eff = snr_single / (1.0 + (sma / a_crit) ** 3)
+        snr_total = np.sqrt(n_transits) * snr_eff if n_transits else np.nan
+        return dict(
+            sma=float(sma),
+            mass_pl=float(mass),
+            alpha_mas=float(alpha),
+            snr_single=float(snr_single),
+            snr_eff=float(snr_eff),
+            snr_total=float(snr_total),
+        )
 
     def draw_angles():
         return dict(

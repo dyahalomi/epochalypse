@@ -8,7 +8,9 @@ it guards:
 
 * the seeding scheme (a change here silently changes the whole catalog);
 * per-source determinism, which is what makes the pipeline shardable;
-* the priors and the Roche / Hill screens actually holding on real draws;
+* the priors and the Hill screen actually holding on real draws, the a-prior
+  floor clearing every star's Roche lobe, and the periodogram grid bracketing
+  every period the prior can inject;
 * the mass-radius interpolation edge behaviour (NaN, not extrapolation);
 * that every path resolves inside the checkout -- `config.ROOT` is found by
   walking up from `__file__`, and a path escaping it is not otherwise visible.
@@ -156,11 +158,7 @@ def test_priors_and_screens():
     for angle in ("Omega", "omega", "M_anom"):
         assert one[angle].between(0.0, 360.0).all()
 
-    # the star fits inside its own Roche lobe in every drawn system
-    floor = P.roche_lobe_min_separation(0.52, 0.55, one["mass_pl"] * C.MJUP_IN_MSUN)
-    assert (one["sma"] >= floor).all(), "a Roche-lobe-violating draw was accepted"
-
-    # log-uniform in a: equal probability per decade, away from the Roche floor
+    # log-uniform in a: equal probability per decade, over the full decades
     decades = np.floor(np.log10(one.loc[one["sma"] > 0.1, "sma"]))
     counts = decades.value_counts(normalize=True)
     assert set(counts.index) == {-1.0, 0.0, 1.0}, counts
@@ -174,6 +172,58 @@ def test_priors_and_screens():
     # Kepler's third law round-trips
     mtot = 0.55 + one["mass_pl"] * C.MJUP_IN_MSUN
     assert np.allclose(one["period"], np.sqrt(one["sma"] ** 3 / mtot))
+
+
+def pecaut_track():
+    """(abs_G, mass, radius) densely along the interpolated Pecaut & Mamajek track.
+
+    Mass and radius come only from interpolating this table (off-table stars
+    are dropped), so extremes over the track bound every star in every sample.
+    """
+    pecaut = S.read_pecaut()
+    pecaut = pecaut.dropna(subset=["M_G", "Msun", "R_Rsun"]).sort_values("M_G")
+
+    # dense in M_G: the interpolated track, not just the tabulated spectral types
+    abs_g = np.linspace(pecaut["M_G"].min(), pecaut["M_G"].max(), 20_001)
+    mass = np.interp(abs_g, pecaut["M_G"], pecaut["Msun"])
+    radius = np.interp(abs_g, pecaut["M_G"], pecaut["R_Rsun"])
+    return abs_g, mass, radius
+
+
+def test_a_min_clears_every_roche_lobe():
+    """No star the pipeline can build overfills its Roche lobe at A_MIN_AU.
+
+    This is why the draw has no per-star Roche screen. Raise the radius model
+    past the main sequence or lower A_MIN_AU and this fails rather than letting
+    contact systems through.
+    """
+    abs_g, mass, radius = pecaut_track()
+    # the floor grows with companion mass, so the heaviest companion is the worst
+    floor = P.roche_lobe_min_separation(radius, mass, C.MASS_MAX_MJUP * C.MJUP_IN_MSUN)
+    assert floor.max() < C.A_MIN_AU, (
+        f"a star at M_G={abs_g[floor.argmax()]:.2f} overfills its Roche lobe out "
+        f"to {floor.max():.4f} AU, beyond A_MIN_AU = {C.A_MIN_AU} AU"
+    )
+
+
+def test_period_grid_brackets_every_injectable_period():
+    """The periodogram grid covers every period the prior can inject, any star.
+
+    Shortest: A_MIN_AU around the heaviest star with the heaviest companion.
+    Longest: A_MAX_AU around the lightest star with the lightest companion.
+    Change the a prior or the mass table without moving the grid and this fails.
+    """
+    from epochalypse.periodogram import config as PC
+
+    _, mass, _ = pecaut_track()
+    shortest = P.semimajor_axis_to_period(
+        C.A_MIN_AU, mass.max() + C.MASS_MAX_MJUP * C.MJUP_IN_MSUN
+    )
+    longest = P.semimajor_axis_to_period(
+        C.A_MAX_AU, mass.min() + C.MASS_MIN_MJUP * C.MJUP_IN_MSUN
+    )
+    assert PC.P_MIN < shortest, f"P_MIN = {PC.P_MIN} yr > shortest {shortest:.3e} yr"
+    assert longest < PC.P_MAX, f"P_MAX = {PC.P_MAX} yr < longest {longest:.1f} yr"
 
 
 def test_two_companion_pairs():
@@ -248,6 +298,42 @@ def test_mass_radius_interpolation():
     # off the faint end of the sequence, and rows with no usable G or parallax
     assert got["mass_interp"][4:].isna().all()
     assert got["radius_interp"][4:].isna().all()
+
+
+def test_main_sequence_offset():
+    """Zero on the ridge, signed by brightness, NaN off the colour range."""
+    # G2V and M0V rows of the table: Bp-Rp 0.823 / 1.84, M_G 4.635 / 8.16
+    on_ridge = S.main_sequence_offset([4.635, 8.16], [0.823, 1.84])
+    assert np.allclose(on_ridge, 0.0), on_ridge
+    # brighter than the ridge is negative
+    assert np.isclose(S.main_sequence_offset(4.635 - 1.5, 0.823), -1.5)
+    # bluer than B9V, redder than M8.5V, or no colour: never extrapolated
+    assert np.isnan(S.main_sequence_offset([5.0, 5.0, 5.0], [-0.5, 6.0, np.nan])).all()
+
+
+def test_source_list_cuts():
+    """Both noise terms are required, and only the main-sequence band survives."""
+    from epochalypse.sources import simulated_sources
+
+    frame = pd.DataFrame(
+        {
+            "sig_AL": [0.2, np.nan, 0.2, 0.2, 0.2, 0.2],
+            "sig_att_radec": [0.05, 0.05, np.nan, 0.05, 0.05, 0.05],
+            # on the G2V ridge, then 0.9 above / 3 above / 1.5 below it
+            "abs_G": [4.635, 4.635, 4.635, 3.735, 1.635, 6.135],
+            "bp_rp_dr3": [0.823] * 6,
+        }
+    )
+    keep = simulated_sources(frame, verbose=False)
+    assert keep.tolist() == [True, False, False, True, False, False], keep
+
+    before = C.MAIN_SEQUENCE_ONLY
+    try:
+        C.MAIN_SEQUENCE_ONLY = False
+        keep = simulated_sources(frame, verbose=False)
+        assert keep.tolist() == [True, False, False, True, True, True], keep
+    finally:
+        C.MAIN_SEQUENCE_ONLY = before
 
 
 def test_config_exposes_every_constant_the_package_reads():

@@ -1,7 +1,8 @@
 # epochalypse — periodograms
 
 Runs the `kepmodel` astrometric periodogram over **every system in the DR4
-catalog**: 5,724,586 stars × 3 populations = 17,173,758 period searches, on the
+catalog**: 5,040,328 main-sequence stars × 3 populations = 15,120,984 period
+searches, on the
 cluster the catalog was generated on. Self-contained: everything it reads is the
 generator's parquet shards, everything it writes is under `outputs/`.
 
@@ -14,8 +15,8 @@ subset in between.
 three populations from the unbiased prior and records `SNR_tot` rather than
 rejecting on it, so "one companion: high-SNR" is the subset of `1_companion`'s
 rows with `SNR_tot >= 5` on every companion — rows this run has already
-characterized. Selecting after the fact is what makes 5.7 M × 3 the whole job
-rather than 5.7 M × 5, and it means re-cutting at a different floor costs a
+characterized. Selecting after the fact is what makes 5.0 M × 3 the whole job
+rather than 5.0 M × 5, and it means re-cutting at a different floor costs a
 boolean mask rather than 2,000 core-hours.
 
 **One work unit is one shard.** The generator wrote 320 shards per population;
@@ -26,8 +27,8 @@ statistics — and is the right tool when the analysis touches 0.2% of the
 catalog. Here it touches all of it, once, so nothing is materialized.
 
 **The period grid is stored once, not once per system.** It depends on `P_MIN`,
-`P_MAX` and `N_SEGMENTS` and on nothing about the star, so all 17 M curves are
-sampled on the same 16,641 trial periods. `outputs/periodograms/period_grid.parquet`
+`P_MAX` and `N_SEGMENTS` and on nothing about the star, so all 15 M curves are
+sampled on the same 15,777 trial periods. `outputs/periodograms/period_grid.parquet`
 holds them; storing a period axis beside every curve would exactly double the
 largest output this pipeline produces. `tests/test_periodograms.py` asserts the
 identity that rests on — that `kepmodel` visits exactly `segment_periods(segments)`.
@@ -56,7 +57,7 @@ python scripts/characterize_finish.py --stages calibrate census merge
 Locally:
 
 ```bash
-python epochalypse.periodogram.unit.run_unit 1_companion 7                    # one shard, ~1.8 h
+python epochalypse.periodogram.unit.run_unit 1_companion 7                    # one shard, ~1.6 h
 python epochalypse.periodogram.unit.run_unit 1_companion 7 --limit 300        # ~2 min
 python scripts/characterize_mpi.py --max-units 2 --limit 20                    # one process, no MPI
 mpirun -n 8 python scripts/characterize_mpi.py --max-units 8 --limit 20        # 8 local processes
@@ -96,7 +97,7 @@ sbatch --dependency=afterok:$run scripts/mpi/5-periodogram-finish.sh
 Both follow the generator's scripts: `cd "${SLURM_SUBMIT_DIR:-.}"`,
 `source .venv/bin/activate`, `source scripts/mpi/env.sh`. Both pass
 `--catalog-root $OUT_ROOT` (the catalog the generator wrote) and
-`--output-root $PGRAM_ROOT`, because at ~915 GB the curves belong on scratch
+`--output-root $PGRAM_ROOT`, because at ~765 GB the curves belong on scratch
 rather than in the repo tree (the defaults are `<repo>/outputs` for the
 shards,
 `<repo>/outputs/periodograms` for the results) are the generator's own layout.
@@ -126,28 +127,35 @@ generation.
 ## Cost
 
 Measured, not estimated: **340 ms per system** on one Apple M-series core
-(16,641 trial periods, `FIT_JITTER = False`), and **357 ms** including shard
+(on the earlier 16,641-period grid, `FIT_JITTER = False`), and **357 ms** including shard
 reads and parquet writes. The cost is nearly flat in the epoch count — 320 ms at
 48 epochs, 375 ms at 169 — because the 16,600-iteration frequency loop
 dominates, not the linear algebra. A rome core is roughly 1.5–2× slower on
 scalar Python, so budget **0.5–0.7 s/system** there.
 
+The grid is now 15,777 periods (`P_MIN` rose from 5e-5 to 1.3e-3 yr with the
+0.03 AU semi-major axis floor; `P_MAX` from 3300 to 3700 yr to cover the
+longest period the prior can inject), ~5% fewer, so the per-system time above — measured on the 16,641-period grid
+— is a slight overestimate. The tables below are scaled to the current source
+list: 5,040,328 main-sequence stars, down from 5,724,586 before the
+main-sequence and `sig_att_radec` cuts (see `PIPELINE.md`).
+
 | | systems | core-hours (M-series) | core-hours (rome, est.) |
 | --- | --- | --- | --- |
-| one shard | 17,890 | 1.8 | 2.5–3.5 |
-| one population | 5,724,586 | 570 | 800–1,100 |
-| **all three** | **17,173,758** | **1,700** | **2,400–3,300** |
+| one shard | 15,751 | 1.6 | 2.2–3.1 |
+| one population | 5,040,328 | 500 | 700–980 |
+| **all three** | **15,120,984** | **1,500** | **2,100–2,900** |
 
 | ranks | nodes × tasks | wall (rome, est.) |
 | --- | --- | --- |
-| 320 | 10 × 32 | 7.5–10 h |
-| 640 | 10 × 64 | 4–5 h |
-| 960 | 15 × 64 | 2.5–3.5 h |
+| 320 | 10 × 32 | 6.5–9 h |
+| 640 | 10 × 64 | 3.5–4.5 h |
+| 960 | 15 × 64 | 2–3 h |
 
 `scripts/mpi/4-periodograms.sh` asks for 320 ranks and 12 h, which is the conservative corner of
 that table. The compute is embarrassingly parallel and the I/O is one sequential
 read and one sequential write per unit, so the scaling should hold until the
-filesystem notices — at 960 ranks writing `--power all` that is ~2.6 GB/s of
+filesystem notices — at 960 ranks writing `--power all` that is ~2.5 GB/s of
 parquet, which is worth checking against your Ceph allocation before submitting.
 
 ## Storage
@@ -158,28 +166,28 @@ Two outputs, and they differ by three orders of magnitude.
 both detection channels, the truth-based recovery flags, and the injected truth
 columns joined on. 50 columns for `1_companion`, 74 for `2_companion`.
 Measured at **343 bytes per system** after zstd (excluding the parquet footer,
-which amortizes to ~5 B/row at 17,890 rows per shard):
+which amortizes to ~5 B/row at 15,751 rows per shard):
 
 | | rows | size |
 | --- | --- | --- |
-| `0_companion` | 5,724,586 | ~1.4 GB |
-| `1_companion` | 5,724,586 | ~2.0 GB |
-| `2_companion` | 5,724,586 | ~2.9 GB |
-| **total** | **17,173,758** | **~6.3 GB** |
+| `0_companion` | 5,040,328 | ~1.2 GB |
+| `1_companion` | 5,040,328 | ~1.8 GB |
+| `2_companion` | 5,040,328 | ~2.6 GB |
+| **total** | **15,120,984** | **~5.5 GB** |
 
 It is written for every system, always, and it is what the three paper figures
 read.
 
-**The raw periodograms** are one Δχ² curve per system: 16,641 float32 = 66.6 kB
-raw, **53.3 kB after zstd** (measured on real curves — they are noisy, so
+**The raw periodograms** are one Δχ² curve per system: 15,777 float32 = 63.1 kB
+raw. At 16,641 periods they were **53.3 kB after zstd** (measured on real curves — they are noisy, so
 compression buys only ~20%).
 
 | `--power` | what is stored | all three populations |
 | --- | --- | --- |
-| `all` | every system (the default) | ~915 GB |
+| `all` | every system (the default) | ~765 GB |
 | `none` | nothing | 0 |
 
-**`all` is the default, and 915 GB needs somewhere to go.** That is roughly ten
+**`all` is the default, and 765 GB needs somewhere to go.** That is roughly ten
 times the catalog it was computed from, so point `--output-root` at ceph rather
 than the repo tree:
 
@@ -191,7 +199,7 @@ Storing every curve is deliberate. Which curves are interesting is an analysis
 question — stacking them, refitting peaks, testing a different width metric —
 and subsampling at write time answers it once, permanently, for whoever comes
 next. A curve not written back can only be recovered by recomputing it, and
-recomputing the catalog is ~2,400 core-hours. Subsample in analysis instead,
+recomputing the catalog is ~2,100 core-hours. Subsample in analysis instead,
 where the choice is cheap and reversible. (For a single system,
 `scripts/periodogram_source.py` regenerates a curve in 0.34 s regardless.)
 
@@ -200,13 +208,13 @@ kept:
 
 | | float32 | float16 |
 | --- | --- | --- |
-| full grid | 915 GB | ~460 GB |
+| full grid | ~765 GB | ~380 GB |
 
 Decimation is safer than it looks: **every summary statistic the classification
 depends on — `width_dex`, `top_power`, `best_period`, `period_k_in_bound` — is
 computed on the full-resolution float64 curve before anything is thrown away.**
 The stored curve is for plotting and re-analysis, not for the measurement, so
-decimating by 4 costs a figure nothing at 16,641 points across 7.8 decades.
+decimating by 4 costs a figure nothing at 15,777 points across 6.5 decades.
 float16 is the more aggressive choice: it holds ~3 decimal digits, so a Δχ² of
 1,000 is stored to ±0.5, against a `WIDTH_DELTA` of 4. Fine on a log axis, not
 something to re-measure a width from.
@@ -223,7 +231,7 @@ outputs/
 │   └── <population>/
 │       └── chars_shard00007_of_00320.parquet     one row per system
 ├── periodograms/
-│   ├── period_grid.parquet         the 16,641 trial periods, once per run
+│   ├── period_grid.parquet         the 15,777 trial periods, once per run
 │   └── <population>/
 │       └── power_shard00007_of_00320.parquet     one Delta-chi^2 curve per system
 ├── characterization_<population>[_high_snr].parquet    optional, `finish.py --stages merge`
@@ -304,7 +312,7 @@ frequency loop dominates and nothing is shared between them.
 
 ## Calibration
 
-The periodogram Δχ² is maximized over 16,641 trial periods, so under the null it
+The periodogram Δχ² is maximized over 15,777 trial periods, so under the null it
 is inflated by the look-elsewhere effect and is not χ²₄-distributed. It is
 further inflated because the catalog's noise model injects scatter at the
 σ_UEVA scale but reports the smaller σ_formal, and the search uses fixed
@@ -313,10 +321,10 @@ trusting at this grid size, so the thresholds are measured on `0_companion` at a
 1% false-positive rate, split evenly between the two independent channels.
 
 Two things make that stronger here than in the notebook it comes from. The
-control is the *same 5.7 M stars* as the two companion populations, so it is a
+control is the *same 5.0 M stars* as the two companion populations, so it is a
 matched null — every star's parallax, transit count and per-epoch precision
-appears in both. And the quantile is measured on 5.7 M systems rather than
-10,000, so the 99.5th percentile is set by ~29,000 systems in the tail rather
+appears in both. And the quantile is measured on 5.0 M systems rather than
+10,000, so the 99.5th percentile is set by ~25,000 systems in the tail rather
 than ~50. The threshold stops being the noisy quantity it is at notebook scale.
 
 The thresholds MUST be recalibrated for any change in the grid, the bounds, or
@@ -330,7 +338,7 @@ Everything the population maps need is in the characterization table:
 ```python
 from epochalypse.periodogram.calibrate import load_characterization
 
-# "one companion: random" -- the whole 5.7 M, flags already applied
+# "one companion: random" -- the whole 5.0 M, flags already applied
 df = load_characterization("1_companion",
                            columns=["period_1", "Mp_1_msun", "a_1_au", "e_1",
                                     "mass_st_msun", "parallax_mas", "snr_total_1",
@@ -342,8 +350,8 @@ hi = load_characterization("1_companion", columns=[...], high_snr=True)
 
 Then the existing figure stack takes over unchanged — `epochalypse_figures.joint`,
 `cf.SCHEME_3`, `cf.apply_calibration` — because the column names are the ones it
-already reads. The one thing to reconsider at 5.7 M rows is the scatter: a
-rasterized 5.7 M-point panel is a large PDF and mostly overplotted ink, so the
+already reads. The one thing to reconsider at 5.0 M rows is the scatter: a
+rasterized 5.0 M-point panel is a large PDF and mostly overplotted ink, so the
 drawn panel probably wants a subsample of a few thousand, with the full table
 behind every number in the caption. That is an analysis-side choice now -- the
 write path stores every system, so pick the rule where the figure is made.

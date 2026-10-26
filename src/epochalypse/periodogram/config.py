@@ -152,7 +152,7 @@ def failed_dir():
 # high-SNR samples are not separate runs: `1_companion_high_snr` is the subset
 # of `1_companion`'s rows clearing HIGH_SNR_MIN on every companion, and every
 # one of those rows was already characterized here. Selecting after the fact is
-# what makes 5.7 M x 3 the whole job rather than 5.7 M x 5.
+# what makes 5.0 M x 3 the whole job rather than 5.0 M x 5.
 #
 # POPULATIONS and HIGH_SNR_MIN are re-exported from the generator above: it is
 # a dict name -> n_companions, so it doubles as the truth-join arity that used
@@ -161,15 +161,18 @@ def failed_dir():
 # ==========================================================================
 # Search grid
 # ==========================================================================
-# Bounds are `run_periodograms.P_MIN` / `P_MAX`, unchanged, and the reasoning
-# there still applies: the grid must bracket every injected truth at BOTH ends,
-# or a system rails at an edge and "is the truth inside the competitive
-# region?" becomes unanswerable-by-construction rather than measured. The lower
-# bound is set by the innermost orbit the generator can inject -- not the flat
-# 0.001 AU semi-major axis floor but the per-star Roche-lobe screen, whose
-# tightest orbit over stars.csv has a period of 8.4e-5 yr (44 minutes), so
-# 5e-5 yr brackets the prior with 1.7x margin.
-P_MIN, P_MAX = 5.0e-5, 3300.0
+# The grid must bracket every injected truth at BOTH ends, or a system rails at
+# an edge and "is the truth inside the competitive region?" becomes
+# unanswerable-by-construction rather than measured. Both bounds are derived
+# from the prior over the whole Pecaut & Mamajek track, not from one catalog's
+# draws, so they hold for any sample the pipeline builds:
+#   P_MIN: A_MIN_AU = 0.03 AU around the heaviest star (5.4 M_sun, plus an
+#          80 M_Jup companion) is 2.22e-3 yr (0.81 d); 1.3e-3 yr is 1.7x below.
+#   P_MAX: A_MAX_AU = 100 AU around the lightest star (0.075 M_sun) is 3651 yr
+#          (3580 yr over the 500 pc stars.csv); 3700 yr is just above.
+# The old P_MAX = 3300 was the longest period drawn in an earlier catalog,
+# and the 500 pc sample's lighter stars outran it.
+P_MIN, P_MAX = 1.3e-3, 3700.0
 
 # kepmodel steps the trial *frequency* by a fixed amount, so it evaluates only
 # on uniform frequency grids. One such grid per log-period segment lets the
@@ -177,7 +180,7 @@ P_MIN, P_MAX = 5.0e-5, 3300.0
 # is the search grid, and every sample is a native kepmodel evaluation (nothing
 # is interpolated). N_SEGMENTS is the only cost knob -- more segments means
 # less overshoot at the fine end and a total closer to a genuinely log-uniform
-# grid. At 32 segments each spans 0.24 dex and the search costs ~35% more
+# grid. At 32 segments each spans 0.20 dex and the search costs ~27% more
 # evaluations than the baseline grid has trial periods.
 N_SEGMENTS = 32
 
@@ -216,8 +219,8 @@ PARQUET_COMPRESSION_LEVEL = 3
 CHARS_FLUSH_EVERY = 5000  # systems buffered before a characterization row-group flush
 POWER_FLUSH_EVERY = 500  # ~27 MB of float32 power per row group
 
-# Whether to keep the raw Delta-chi^2 curves. A curve is 16,641 float32 =
-# 53 kB per system after zstd, so keeping every one is ~915 GB over the three
+# Whether to keep the raw Delta-chi^2 curves. A curve is 15,777 float32 =
+# ~50 kB per system after zstd, so keeping every one is ~765 GB over the three
 # populations -- ten times the catalog it was computed from, so it wants
 # --output-root on ceph rather than the repo tree. Stored for every system on
 # purpose: subsampling is an analysis choice, and a curve that was never

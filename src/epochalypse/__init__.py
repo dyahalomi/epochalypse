@@ -6,7 +6,7 @@ path, and seed is a module constant there.
 
     stars      parent stellar sample
     sources    per-source lookup (SourceCatalog, ScanLawStore) + high-SNR view
-    planets    per-source companion draw (Roche + Hill screens)
+    planets    per-source companion draw (Hill screen)
     astrometry per-source epoch simulation + ShardWriter
     figures    the catalog figures
     constants  physical and mission constants, derived from astropy

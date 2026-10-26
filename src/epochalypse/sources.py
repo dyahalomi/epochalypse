@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 
 from . import config as C
+from .stars import main_sequence_offset
 
 
 def _read_arrow(path):
@@ -48,6 +49,46 @@ def _normalize_ids(array):
 # --------------------------------------------------------------------------
 # Index construction
 # --------------------------------------------------------------------------
+# The stars.csv columns `simulated_sources` decides on.
+SOURCE_LIST_COLUMNS = ("sig_AL", "sig_att_radec", "abs_G", C.BPRP_COL)
+
+
+def simulated_sources(stars, *, verbose=True):
+    """Boolean mask over `stars`: the rows that go into the source list.
+
+    Every exclusion from the simulated sample is made here, once, so the index
+    -- the source list every rank iterates -- is the only place it can happen.
+    """
+    # Both per-CCD noise terms: the reported error is
+    # sqrt(sig_att_radec^2 + sig_AL^2), and the simulator draws from both, so a
+    # star missing either has no noise model and would yield NaN epochs. sig_AL
+    # is absent for a few hundred high-RUWE binaries, sig_att_radec for ~14 more.
+    keep = np.ones(len(stars), dtype=bool)
+    for column in ("sig_AL", "sig_att_radec"):
+        finite = np.isfinite(stars[column].to_numpy(dtype=float))
+        if verbose and (keep & ~finite).any():
+            print(
+                f"  excluded {int((keep & ~finite).sum()):,} stars with no {column} "
+                "(no noise model)"
+            )
+        keep &= finite
+
+    if C.MAIN_SEQUENCE_ONLY:
+        offset = main_sequence_offset(stars["abs_G"], stars[C.BPRP_COL])
+        on_band = (offset >= C.MS_BRIGHT_EDGE) & (offset <= C.MS_FAINT_EDGE)
+        if verbose:
+            off = keep & ~on_band
+            print(
+                f"  excluded {int(off.sum()):,} stars off the main sequence "
+                f"({C.MS_BRIGHT_EDGE:+.1f} <= Delta M_G <= {C.MS_FAINT_EDGE:+.1f}): "
+                f"{int((off & (offset < C.MS_BRIGHT_EDGE)).sum()):,} above, "
+                f"{int((off & (offset > C.MS_FAINT_EDGE)).sum()):,} below, "
+                f"{int((off & np.isnan(offset)).sum()):,} outside the colour range"
+            )
+        keep &= on_band
+    return keep
+
+
 def build_indices(*, overwrite=False, verbose=True):
     """Build the per-source indices for the stellar catalog and the scan law.
 
@@ -70,20 +111,14 @@ def build_indices(*, overwrite=False, verbose=True):
     stars = pd.read_csv(
         C.stars_csv(),
         dtype={"gaia_source_id": str},
-        usecols=["gaia_source_id", "sig_AL"],
+        usecols=["gaia_source_id", *SOURCE_LIST_COLUMNS],
         low_memory=False,
     )
     rows = np.arange(len(stars), dtype=np.int64)
 
-    # A handful of high-RUWE binaries carry no per-CCD AL noise calibration.
-    # There is no noise model for them, so simulating one yields NaN epochs.
-    # They are excluded from the index, which is the source list every rank
-    # iterates -- so they can never reach a shard.
-    usable = np.isfinite(stars["sig_AL"].to_numpy(dtype=float))
-    if not usable.all():
-        print(
-            f"  excluded {int((~usable).sum())} stars with no sig_AL (no noise model)"
-        )
+    # Excluded stars are left out of the index, which is the source list every
+    # rank iterates -- so they can never reach a shard.
+    usable = simulated_sources(stars, verbose=verbose)
     stars, rows = stars[usable], rows[usable]
 
     ids = _normalize_ids(stars["gaia_source_id"].to_numpy())

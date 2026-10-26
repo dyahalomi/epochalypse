@@ -49,17 +49,45 @@ PECAUT_COLUMNS = [
 ]
 
 
+def read_pecaut():
+    """The Pecaut & Mamajek table in its own (spectral-type) order, numerics parsed."""
+    pecaut = pd.read_csv(
+        C.PECAUT_MAMAJEK, sep=r"\s+", comment="#", header=None, names=PECAUT_COLUMNS
+    )
+    for column in ["M_G", "Msun", "R_Rsun", "Bp-Rp"]:
+        pecaut[column] = pd.to_numeric(pecaut[column], errors="coerce")
+    return pecaut
+
+
+def main_sequence_offset(abs_g, bp_rp):
+    """Delta M_G [mag] from the dwarf ridge at each star's colour.
+
+    Negative when the star is brighter than a dwarf of its colour. NaN outside
+    the ridge's colour range (B9V to MS_RIDGE_LAST_SPT), never extrapolated.
+    """
+    pecaut = read_pecaut()
+    ridge = pecaut.dropna(subset=["Bp-Rp", "M_G"])
+    ridge = ridge.loc[: ridge.index[ridge["SpT"] == C.MS_RIDGE_LAST_SPT][0]]
+    # np.interp needs an increasing abscissa; asserted so a newer table with a
+    # different colour turnover fails here instead of interpolating nonsense
+    assert (np.diff(ridge["Bp-Rp"]) > 0).all() and (np.diff(ridge["M_G"]) >= 0).all()
+    ridge_abs_g = np.interp(
+        np.asarray(bp_rp, dtype=float),
+        ridge["Bp-Rp"],
+        ridge["M_G"],
+        left=np.nan,
+        right=np.nan,
+    )
+    return np.asarray(abs_g, dtype=float) - ridge_abs_g
+
+
 def add_mass_radius_from_pecaut(sources, verbose=True):
     """Add absolute G magnitude plus interpolated mass and radius.
 
     Linear in absolute G; stars outside the table's M_G range come out NaN
     rather than extrapolated.
     """
-    pecaut = pd.read_csv(
-        C.PECAUT_MAMAJEK, sep=r"\s+", comment="#", header=None, names=PECAUT_COLUMNS
-    )
-    for column in ["M_G", "Msun", "R_Rsun"]:
-        pecaut[column] = pd.to_numeric(pecaut[column], errors="coerce")
+    pecaut = read_pecaut()
     pecaut = pecaut.dropna(subset=["M_G", "Msun", "R_Rsun"]).sort_values("M_G")
 
     df = sources.copy()
@@ -132,15 +160,17 @@ def build_star_catalog(*, overwrite=True) -> pd.DataFrame:
     print(f"  dropped {int((~keep).sum())} stars outside the Pecaut & Mamajek range")
     stars = stars[keep].copy()
 
-    # A handful of high-RUWE binaries carry no per-CCD AL noise calibration.
-    # They are dropped when the source list is built (`sources.build_indices`),
-    # not here, so stars.csv stays the full mass/radius-valid sample.
-    n_missing = int((~np.isfinite(stars["sig_AL"].to_numpy(dtype=float))).sum())
-    if n_missing:
-        print(
-            f"  note: {n_missing} stars lack sig_AL; they are dropped from the "
-            "source list, not from stars.csv"
-        )
+    # Stars missing a per-CCD noise term, and (with MAIN_SEQUENCE_ONLY) stars
+    # off the main sequence, are dropped when the source list is built
+    # (`sources.simulated_sources`), not here, so stars.csv stays the full
+    # mass/radius-valid sample.
+    for column in ("sig_AL", "sig_att_radec"):
+        n_missing = int((~np.isfinite(stars[column].to_numpy(dtype=float))).sum())
+        if n_missing:
+            print(
+                f"  note: {n_missing} stars lack {column}; they are dropped from "
+                "the source list, not from stars.csv"
+            )
 
     stars_csv.parent.mkdir(parents=True, exist_ok=True)
     stars.to_csv(stars_csv, index=False)

@@ -87,7 +87,7 @@ def test_grid():
     )
     check("strictly ascending, no duplicates", bool((dlog > 0).all()))
     check(
-        "~35% more samples than the baseline's trial count",
+        "~27% more samples than the baseline's trial count",
         1.2 < len(periods) / C.BASELINE_N_PERIODS < 1.6,
         f"{len(periods):,} vs {C.BASELINE_N_PERIODS:,}",
     )

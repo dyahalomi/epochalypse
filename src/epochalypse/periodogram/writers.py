@@ -6,18 +6,18 @@ columns joined on. It is what every figure reads. At 17.2 M systems and ~70
 columns it is ~6 GB for the whole catalog, so it is written for every system,
 always.
 
-**The raw periodograms** are one Delta-chi^2 curve per system, 16,641 float32 =
-54 kB after zstd, which is 920 GB over the whole catalog. That is the honest
+**The raw periodograms** are one Delta-chi^2 curve per system, 15,777 float32 =
+~51 kB after zstd, which is ~765 GB over the whole catalog. That is the honest
 number and `POWER_MODE` is the on/off switch:
 
 | mode | what is stored | full catalog |
 | --- | --- | --- |
-| `all` | every system (the default) | ~920 GB |
+| `all` | every system (the default) | ~765 GB |
 | `none` | nothing | 0 |
 
 Every system, on purpose: which curves are interesting is an analysis choice,
 and one that was never written can only be recovered by recomputing it. At
-~920 GB this wants `--output-root` on ceph, not the repo tree.
+~765 GB this wants `--output-root` on ceph, not the repo tree.
 
 `POWER_DTYPE = "float16"` halves it without changing *which* systems are kept,
 and is still a perfectly readable figure, because every summary statistic the

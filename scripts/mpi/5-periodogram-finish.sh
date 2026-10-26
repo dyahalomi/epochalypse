@@ -8,7 +8,7 @@
 #SBATCH --constraint=rome
 
 # Serial and cheap. `calibrate` and `census` read two columns out of the parquet
-# dataset and would run on a login node; `merge` builds a 5.7 M-row frame in
+# dataset and would run on a login node; `merge` builds a 5.0 M-row frame in
 # pandas, which is what the 120 GB is for. Drop `merge` and this fits in 8 GB.
 
 cd /mnt/home/apricewhelan/work/epochalypse

@@ -167,24 +167,34 @@ SEED_ASTROMETRY = 45
 # ==========================================================================
 PARALLAX_COL = "parallax"
 GMAG_COL = "phot_g_mean_mag_dr3"
+BPRP_COL = "bp_rp_dr3"
 SOURCE_ID_COL = "gaia_source_id"
+
+# Main-sequence cut, applied when the source list is built (stars.csv keeps
+# every star). Mass and radius come from M_G alone along the dwarf sequence, so
+# a subgiant or giant would get the mass of whichever dwarf shares its M_G; only
+# stars whose colour AND magnitude put them on that sequence are simulated.
+#     Delta M_G = M_G - M_G,MS(BP-RP),  ridge from the same Pecaut & Mamajek table
+# negative when brighter than a dwarf of that colour. Bright edge: an unresolved
+# equal-mass binary sits 0.75 mag up and is still two dwarfs, plus 0.25 mag of
+# sequence width. Faint edge: only ~1% of stars lie past it (subdwarfs, white
+# dwarfs, bad BP/RP). From analysis/star_sky_scanlaw_500pc.ipynb section 4.3.
+MAIN_SEQUENCE_ONLY = True
+MS_BRIGHT_EDGE, MS_FAINT_EDGE = -1.0, +1.0  # the band, in Delta M_G [mag]
+# The ridge stops at M8.5V: past it the table's colour turns back blueward.
+MS_RIDGE_LAST_SPT = "M8.5V"
 
 # ==========================================================================
 # Companion priors
 # ==========================================================================
-# Semi-major axis: log-uniform. The floor is deliberately below anything
-# physical -- the binding inner limit is the per-star Roche-lobe screen below,
-# which cuts each system at its own separation and so leaves a smeared inner
-# edge rather than a wall at A_MIN_AU.
-A_MIN_AU = 0.001
+# Semi-major axis: log-uniform, a hard wall at both ends. There is no per-star
+# Roche-lobe screen: the star overfills its lobe only inside
+#     a = R_star / ell(M_star/M_p),  ell from Eggleton (1983),
+# and the largest such separation anywhere on the Pecaut & Mamajek track (B3V,
+# 3.61 R_sun, with an 80 M_Jup companion) is 0.0238 AU -- below A_MIN_AU, so the
+# screen could never fire. `test_pipeline` re-checks this against the table.
+A_MIN_AU = 0.03
 A_MAX_AU = 100.0
-
-# Innermost separation: the star must fit inside its own Roche lobe, else the
-# configuration is a contact binary rather than a star with a companion:
-#     a > R_star / ell(M_star/M_p),  ell from Eggleton (1983).
-# Works out to 1.2-2.6 R_star across this catalog's mass ratios, and needs no
-# companion radius, so it imports no mass-radius model.
-ROCHE_SAFETY_FACTOR = 1.0  # 1.0 = the bare lobe-filling limit
 
 # Companion mass: log-uniform, Mars mass to the hydrogen-burning limit.
 MASS_MIN_MJUP = MARS_IN_MJUP  # 1 M_Mars = 3.3668e-04 M_Jup
