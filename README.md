@@ -8,7 +8,7 @@ that fits orbits to the simulated epochs, and the notebooks that make every figu
 
 ## The catalog
 
-The catalog is served at <https://users.flatironinstitute.org/~apricewhelan/epochalypse/> in the layout
+The catalog is served at {fill with zenodo link} in the layout
 the generator writes (`data/` for the stellar sample and the injected-solutions truth tables, `periodograms/`
 for the characterization tables). Three populations are simulated for the same 5,040,328 stars, with zero,
 one and two companions, plus a high-SNR selection of each companion population. The semi-major-axis prior is
