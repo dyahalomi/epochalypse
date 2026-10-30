@@ -174,6 +174,27 @@ def test_priors_and_screens():
     assert np.allclose(one["period"], np.sqrt(one["sma"] ** 3 / mtot))
 
 
+def test_snr_suppression_is_period_over_baseline():
+    """snr_eff = snr_single / (1 + (P/T)^2) for every companion, at any mass.
+
+    a_crit carries the companion mass, so the (a/a_crit)^3 form the generator
+    evaluates IS the (P/T)^2 form by Kepler's third law. A star-only a_crit
+    would inflate the suppression by (1 + M_p/M_star), up to a factor of two
+    for the heaviest companions around the lightest stars.
+    """
+    rows = []
+    for i in range(400):
+        rows += P.draw_companions(
+            "2_companion", star(10**16 + i), n_transits=44, sigma_single=0.21
+        )
+    two = pd.DataFrame(rows)
+    supp = 1.0 + (two["period"] / C.BASELINE_YEARS) ** 2
+    assert np.allclose(two["snr_eff"], two["snr_single"] / supp, rtol=1e-12)
+    assert np.allclose(two["snr_total"], np.sqrt(44) * two["snr_eff"], rtol=1e-12)
+    # the sample must actually exercise the heavy-companion regime
+    assert (two["mass_pl"] * C.MJUP_IN_MSUN / 0.55 > 0.05).any()
+
+
 def pecaut_track():
     """(abs_G, mass, radius) densely along the interpolated Pecaut & Mamajek track.
 

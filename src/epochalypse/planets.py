@@ -141,14 +141,17 @@ def draw_companions(population, star, *, n_transits, sigma_single):
 
     log_a = (np.log10(C.A_MIN_AU), np.log10(C.A_MAX_AU))
     log_m = (np.log10(C.MASS_MIN_MJUP), np.log10(C.MASS_MAX_MJUP))
-    a_crit = (C.BASELINE_YEARS**2 * mstar) ** (1.0 / 3.0)
 
     def draw_one():
         """One companion from the prior; every draw is accepted."""
         sma = 10 ** rng.uniform(*log_a)
         mass = 10 ** rng.uniform(*log_m)
         mass_msun = mass * C.MJUP_IN_MSUN
-        # S/N is recorded, not used to accept or reject
+        # S/N is recorded, not used to accept or reject. a_crit is the
+        # semi-major axis whose period equals the baseline for THIS pair, so
+        # by Kepler's third law (a/a_crit)^3 == (P/T)^2 exactly, at any
+        # companion mass.
+        a_crit = (C.BASELINE_YEARS**2 * (mstar + mass_msun)) ** (1.0 / 3.0)
         alpha = mass_msun / (mstar + mass_msun) * sma * parallax
         snr_single = (
             alpha / sigma_single

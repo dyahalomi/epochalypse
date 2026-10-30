@@ -622,7 +622,8 @@ AX_A = _axis("alpha_{k}_mas", r"reflex semi-major axis $\alpha$ [mas]", "log", (
 # The catalog's own detectability proxy, rebuilt from a characterization frame so the
 # curves drawn on a figure are the SAME quantity the high-SNR populations were selected on:
 #     alpha = [Mp/(M*+Mp)] a parallax;  snr_single = alpha/sigma;
-#     snr_eff = snr_single / (1 + (a/a_crit)^3), a_crit = (T^2 M*)^(1/3);  snr_total = sqrt(N) snr_eff
+#     snr_eff = snr_single / (1 + (a/a_crit)^3), a_crit = (T^2 (M* + Mp))^(1/3), so by Kepler's
+#     third law the suppression is exactly 1 + (P/T)^2;  snr_total = sqrt(N) snr_eff
 # With a ~ P^(2/3) a locus is Mp ~ P^(-2/3) [1 + (P/T)^2]: a V with its minimum at T/sqrt(2).
 MAX_LOCUS_STARS = 20_000
 
@@ -657,10 +658,10 @@ def snr_locus(df, snr, periods, k=1, quantile=0.5, baseline=BASELINE, iters=8,
     ok = np.isfinite(Ms) & np.isfinite(par) & (Ms > 0) & (par > 0) & np.isfinite(sig)
     Ms, par, sig, nfov = (np.where(ok, v, np.nan) for v in (Ms, par, sig, nfov))
     mp = np.zeros_like(Ms * p)
+    supp = 1.0 + (p / baseline) ** 2
     for _ in range(iters):
         mtot = Ms + mp
         a = (p**2 * mtot) ** (1.0 / 3.0)
-        supp = 1.0 + (p / baseline) ** 2 * mtot / Ms
         mp = np.clip(snr * sig * supp / (np.sqrt(nfov) * par * a) * mtot, 0.0, 0.5 * Ms)
     return np.nanquantile(mp, quantile, axis=0)
 
@@ -672,7 +673,7 @@ def snr_total(df, k=1, baseline=BASELINE):
     Mp = df[f"Mp_{k}_msun"].to_numpy(float)
     a = (P**2 * (Ms + Mp)) ** (1.0 / 3.0)
     alpha = Mp / (Ms + Mp) * a * par
-    return np.sqrt(nfov) * (alpha / sig) / (1.0 + (P / baseline) ** 2 * (Ms + Mp) / Ms)
+    return np.sqrt(nfov) * (alpha / sig) / (1.0 + (P / baseline) ** 2)
 
 
 def snr_at(df, period, mass, k=1, quantile=0.5, baseline=BASELINE, max_stars=MAX_LOCUS_STARS):
@@ -683,7 +684,7 @@ def snr_at(df, period, mass, k=1, quantile=0.5, baseline=BASELINE, max_stars=MAX
     mtot = Ms + m
     a = (p**2 * mtot) ** (1.0 / 3.0)
     alpha = m / mtot * a * par
-    s = np.sqrt(nfov) * (alpha / sig) / (1.0 + (p / baseline) ** 2 * mtot / Ms)
+    s = np.sqrt(nfov) * (alpha / sig) / (1.0 + (p / baseline) ** 2)
     out = np.nanquantile(s, quantile, axis=0)
     return out if np.ndim(period) or np.ndim(mass) else float(out)
 
