@@ -45,9 +45,13 @@ def semimajor_axis_to_period(a_au, mtot_msun):
     return np.sqrt(a_au**3 / mtot_msun)
 
 
-def near_first_order_resonance(a1, a2, j, tol):
-    """Within a fractional tolerance of the (j+1):j commensurability?"""
-    return abs(((a2 / a1) ** 1.5) / ((j + 1) / j) - 1) < tol
+def near_first_order_resonance(p_ratio, j, tol):
+    """Is the period ratio P2/P1 within a fractional tolerance of (j+1):j?
+
+    `p_ratio` is the ratio of the Keplerian periods, each from the star and
+    its companions masses.
+    """
+    return abs(p_ratio / ((j + 1) / j) - 1) < tol
 
 
 def eggleton_lobe_fraction(q):
@@ -66,14 +70,19 @@ def roche_lobe_min_separation(radius_rsun, mstar_msun, mp_msun):
     return (radius_rsun * C.RSUN_IN_AU) / eggleton_lobe_fraction(mstar_msun / mp_msun)
 
 
-def classify_with_resonance(mu1, mu2, a1, a2, e1, e2):
-    """unstable / likely_unstable / resonant_stable_possible / stable."""
+def classify_with_resonance(mu1, mu2, a1, a2, e1, e2, p_ratio):
+    """unstable / likely_unstable / resonant_stable_possible / stable.
+
+    `mu` are the companion-to-star mass ratios, `p_ratio` the outer-to-inner
+    period ratio -- the same number `companion_columns` records as `P_ratio`,
+    so the screen and the recorded `near_*` flags cannot disagree.
+    """
     if a1 * (1 + e1) >= a2 * (1 - e2):
         return "unstable"
     hill_radius = ((mu1 + mu2) / 3) ** (1 / 3) * (a1 + a2) / 2
     delta = (a2 - a1) / hill_radius
     near = any(
-        near_first_order_resonance(a1, a2, j=j, tol=C.RESONANCE_TOLERANCE)
+        near_first_order_resonance(p_ratio, j=j, tol=C.RESONANCE_TOLERANCE)
         for j in C.RESONANCE_ORDERS
     )
     if delta < C.HILL_STABILITY_FACTOR * np.sqrt(3):
@@ -197,15 +206,22 @@ def draw_companions(population, star, *, n_transits, sigma_single):
             pair[1]["inc"], pair[1]["Omega"] = pair[0]["inc"], pair[0]["Omega"]
 
         pair.sort(key=lambda c: c["sma"])  # companion 1 is the inner one
+        for companion in pair:
+            with_period(companion)  # no RNG: the draw stream is unchanged
         mu = [c["mass_pl"] * C.MJUP_IN_MSUN / mstar for c in pair]
         label = classify_with_resonance(
-            mu[0], mu[1], pair[0]["sma"], pair[1]["sma"], pair[0]["ecc"], pair[1]["ecc"]
+            mu[0],
+            mu[1],
+            pair[0]["sma"],
+            pair[1]["sma"],
+            pair[0]["ecc"],
+            pair[1]["ecc"],
+            pair[1]["period"] / pair[0]["period"],
         )
         if label in ("unstable", "likely_unstable"):
             continue
         for companion in pair:
             companion["coplanar"] = coplanar
-            with_period(companion)
         return pair
 
     raise RuntimeError(f"no stable pair within {C.MAX_STABILITY_RETRIES} attempts")
@@ -237,7 +253,7 @@ def companion_columns(companions):
         for j in C.RESONANCE_ORDERS:
             row[f"near_{j + 1}_{j}"] = bool(
                 near_first_order_resonance(
-                    inner["sma"], outer["sma"], j=j, tol=C.RESONANCE_TOLERANCE
+                    row["P_ratio"], j=j, tol=C.RESONANCE_TOLERANCE
                 )
             )
         row["near_resonance"] = any(

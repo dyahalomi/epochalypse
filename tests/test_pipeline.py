@@ -174,6 +174,29 @@ def test_priors_and_screens():
     assert np.allclose(one["period"], np.sqrt(one["sma"] ** 3 / mtot))
 
 
+def test_resonance_uses_the_true_period_ratio():
+    """Near-resonance is judged on P2/P1 with both companion masses, not (a2/a1)^1.5.
+
+    A 0.5 M_star inner companion at a2/a1 = 2^(2/3) has (a2/a1)^1.5 = 2 exactly
+    but P2/P1 = 2 sqrt(1.5) = 2.45, nowhere near 2:1.
+    """
+    mu1, mu2, a1, a2 = 0.5, 1e-6, 1.0, 2.0 ** (2.0 / 3.0)
+    p_ratio = np.sqrt(a2**3 / (1 + mu2)) / np.sqrt(a1**3 / (1 + mu1))
+    assert np.isclose((a2 / a1) ** 1.5, 2.0)
+    assert not P.near_first_order_resonance(p_ratio, j=1, tol=C.RESONANCE_TOLERANCE)
+    assert P.near_first_order_resonance(2.0 * 1.04, j=1, tol=C.RESONANCE_TOLERANCE)
+    assert P.near_first_order_resonance(1.5 / 1.04, j=2, tol=C.RESONANCE_TOLERANCE)
+    # a tightly packed pair survives only when the TRUE period ratio is near
+    assert (
+        P.classify_with_resonance(mu1, mu2, a1, a2, 0.0, 0.0, p_ratio)
+        == "likely_unstable"
+    )
+    assert (
+        P.classify_with_resonance(mu1, mu2, a1, a2, 0.0, 0.0, 2.0)
+        == "resonant_stable_possible"
+    )
+
+
 def test_snr_suppression_is_period_over_baseline():
     """snr_eff = snr_single / (1 + (P/T)^2) for every companion, at any mass.
 
@@ -260,10 +283,23 @@ def test_two_companion_pairs():
         assert inner["sma"] <= outer["sma"], "companion 1 is not the inner one"
         assert inner["coplanar"] == outer["coplanar"]
         mu = [c["mass_pl"] * C.MJUP_IN_MSUN / 0.55 for c in (inner, outer)]
+        p_ratio = outer["period"] / inner["period"]
         label = P.classify_with_resonance(
-            mu[0], mu[1], inner["sma"], outer["sma"], inner["ecc"], outer["ecc"]
+            mu[0],
+            mu[1],
+            inner["sma"],
+            outer["sma"],
+            inner["ecc"],
+            outer["ecc"],
+            p_ratio,
         )
         assert label in ("stable", "resonant_stable_possible"), label
+        # the recorded flags are the screen's own test, on the true period ratio
+        columns = P.companion_columns([inner, outer])
+        for j in C.RESONANCE_ORDERS:
+            assert columns[f"near_{j + 1}_{j}"] == (
+                abs(p_ratio / ((j + 1) / j) - 1) < C.RESONANCE_TOLERANCE
+            )
         if inner["coplanar"]:
             coplanar += 1
             assert inner["inc"] == outer["inc"] and inner["Omega"] == outer["Omega"]
