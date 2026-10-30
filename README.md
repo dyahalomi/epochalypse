@@ -11,7 +11,7 @@ that fits orbits to the simulated epochs, and the notebooks that make every figu
 The catalog is served at {fill with zenodo link} in the layout
 the generator writes (`data/` for the stellar sample and the injected-solutions truth tables, `periodograms/`
 for the characterization tables). Three populations are simulated for the same 5,040,328 stars, with zero,
-one and two companions, plus a high-SNR selection of each companion population. The semi-major-axis prior is
+one and two companions, plus a high-SNR selection of each companion population. The semi-major-axes are drawn
 log-uniform on 0.03–100 AU and the per-epoch noise is calibrated to Gaia DR3 performance.
 
 [`catalog/download_catalog.sh`](catalog/download_catalog.sh) mirrors into `catalog/` the ~13.5 GB that the
