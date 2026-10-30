@@ -15,3 +15,17 @@
 
 __pycache__/
 *.py[cod]
+
+# The catalog mirror (13.5 GB fetched by catalog/download_catalog.sh): only the
+# script is tracked.
+/catalog/*
+!/catalog/download_catalog.sh
+
+# Paper-figure notebooks (analysis/) and tutorials: caches are rebuilt on demand,
+# supplementary figures are re-drawn by the notebooks. The notebooks themselves
+# (with outputs), analysis/data/ and analysis/paper_figures/ are tracked.
+/analysis/cache/
+/analysis/supplementary_figures/
+/tutorials/cache/
+.ipynb_checkpoints/
+.DS_Store

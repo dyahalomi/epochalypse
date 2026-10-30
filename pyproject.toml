@@ -45,4 +45,4 @@ dev = [
 ]
 
 [tool.ruff]
-extend-exclude = ["old", "data", "outputs"]
+extend-exclude = ["data", "outputs", "analysis", "tutorials"]

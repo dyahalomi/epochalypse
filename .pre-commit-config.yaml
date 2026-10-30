@@ -1,3 +1,5 @@
+# Third-party data under analysis/data/ is kept byte-for-byte as released.
+exclude: ^analysis/data/
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -6,7 +8,7 @@ repos:
       - id: check-ast
       - id: check-docstring-first
       - id: check-added-large-files
-        args: ["--maxkb=2000"]
+        args: ["--maxkb=40000"]  # notebooks with outputs, LW26 CSVs
       - id: check-case-conflict
       - id: check-merge-conflict
       - id: check-json
