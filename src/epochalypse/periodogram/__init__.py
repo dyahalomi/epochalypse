@@ -15,4 +15,4 @@ See PERIODOGRAMS.md for the run itself. The import surface:
     from epochalypse.periodogram.calibrate import load_characterization
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"

@@ -35,8 +35,8 @@ DAYS_PER_YEAR = float((1 * u.yr).to(u.day).value)  # 365.25 (Julian)
 # --------------------------------------------------------------------------
 # DR4 reference epoch: epoch astrometry is centred here (JD, TCB).
 GAIA_EPOCH_TCB_JD = 2457936.875
-# DR4 observing baseline, ~66 months. Sets a_crit in the detectability metric
-# and the baseline marker in the figures.
+# DR4 observing baseline, ~66 months. The T in a_crit = (T^2 (M_star + M_p))^(1/3)
+# of the detectability metric, and the baseline marker in the figures.
 DR4_BASELINE_YEARS = 5.5
 
 # --------------------------------------------------------------------------

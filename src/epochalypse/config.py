@@ -210,8 +210,9 @@ ECC_MAX = 0.99
 COPLANAR_PROBABILITY = 0.5
 
 # Detectability metric, recorded per companion and never used to reject:
-#   SNR_tot = sqrt(N_DR4) * (alpha / sigma_single) / (1 + (a/a_crit)^3)
-BASELINE_YEARS = DR4_BASELINE_YEARS  # 5.5 yr; sets a_crit
+#   SNR_tot = sqrt(N_DR4) * (alpha / sigma_single) / (1 + (a/a_crit)^3),
+#   a_crit = (T^2 (M_star + M_p))^(1/3)   so that  (a/a_crit)^3 == (P/T)^2
+BASELINE_YEARS = DR4_BASELINE_YEARS  # 5.5 yr; the T in a_crit
 
 # Two-companion stability screen.
 HILL_STABILITY_FACTOR = 2.0  # unstable if delta < 2 sqrt(3) Hill radii
