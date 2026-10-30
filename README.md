@@ -1,51 +1,86 @@
 # epochalypse
 
-Simulating the Gaia DR4 "epochalypse" — the release of individual epoch-level astrometric measurements — to study the recoverability of planetary orbits from Gaia astrometry.
+Simulated Gaia DR4 epoch astrometry for about five million main-sequence stars, built to study how well
+planetary and substellar companions can be recovered once Gaia releases its individual epoch measurements
+(the "epochalypse"). This repository holds the generator, the periodogram characterization, the tutorial
+that fits orbits to the simulated epochs, and the notebooks that make every figure of the paper
+*Preparing for the Gaia DR4 Epochalypse* (Yahalomi et al., in prep.).
 
-The pipeline builds a Gaia-like stellar sample, synthesizes planet populations around those stars, simulates realistic Gaia DR4 epoch astrometry (including along-scan uncertainties calibrated to Gaia DR3 performance).
+## The catalog
 
-A sample tutorial demonstrating how to load in and then fit the simulated data with `jaxoplanet` + `numpyro` to test orbit recovery is also in the repository.
+The catalog is served at <https://users.flatironinstitute.org/~apricewhelan/epochalypse/> in the layout
+the generator writes (`data/` for the stellar sample and the injected-solutions truth tables, `periodograms/`
+for the characterization tables). Three populations are simulated for the same 5,040,328 stars, with zero,
+one and two companions, plus a high-SNR selection of each companion population. The semi-major-axis prior is
+log-uniform on 0.03–100 AU and the per-epoch noise is calibrated to Gaia DR3 performance.
 
-## Start here: orbit-fitting tutorial
+[`catalog/download_catalog.sh`](catalog/download_catalog.sh) mirrors into `catalog/` the ~13.5 GB that the
+tutorial and the figure notebooks read (resumable; rerun it to finish an interrupted copy). It deliberately
+skips the 28.6 GB of epoch shards and the 711 GB of raw periodogram curves; the notebooks fetch the few
+rows of those they need straight off the server by HTTP range request. A Zenodo deposit of the catalog is
+in preparation.
 
-**[`fit_astrometric_orbits.ipynb`](fit_astrometric_orbits.ipynb)** is the tutorial notebook and the best entry point if you want to investigate the epochalypse dataset. It:
+## Start here: the orbit-fitting tutorial
 
-- Loads a single simulated system directly from `simulated_astrometry.h5`.
-- Fits the same epoch data with 0-, 1-, and 2-planet Keplerian models (NUTS via NumPyro, orbit model via `jaxoplanet`).
-- Compares models with WAIC and plots posterior period/mass recovery against the injected truth.
+[`tutorials/fit_astrometric_orbits.ipynb`](tutorials/fit_astrometric_orbits.ipynb) loads one simulated
+system from the catalog, rebuilds the along-scan five-parameter model and a `jaxoplanet` Keplerian reflex
+model, finds a starting orbit with the catalog's own `kepmodel` periodogram search, samples 0-, 1- and
+2-companion models with NumPyro, compares them with WAIC and plots the recovered orbits against the injected
+truth. Two worked examples (one and two planetary-mass companions) run in about two minutes on a laptop.
+See [`tutorials/README.md`](tutorials/README.md).
 
-The notebook's configuration cell ships with two pre-identified systems with large, easily detectable astrometric signals (re-derived directly from the injected-solutions table, so they stay valid across data reruns):
+## The paper's figures
 
-- **Single-planet** (`DATASET_POPULATION = "1planet_snrfilter"`, `SYSTEM_INDEX = 10561`): 78 Mjup companion, P = 2.64 yr, astrometric signature ≈ 239 mas.
-- **Two-planet** (`DATASET_POPULATION = "2planet_snrfilter"`, `SYSTEM_INDEX = 7728`): 80 Mjup / 3.36 yr (≈13 mas) and 68 Mjup / 5.18 yr (≈15 mas) companions.
+[`analysis/`](analysis/) has one notebook per figure, `Fig1_*.ipynb` to `Fig9_*.ipynb`, each ending in the
+figure as it appears in the paper; the numbers the text quotes are printed along the way. The final figures
+are committed in [`analysis/paper_figures/`](analysis/paper_figures/). Shared code is in
+[`analysis/paperfig.py`](analysis/paperfig.py), and the physics (main-sequence label, noise model, period
+grid, periodogram) is imported from the generator package rather than copied.
+See [`analysis/README.md`](analysis/README.md) for inputs and run times.
 
-Just run the notebook top to bottom to reproduce a fit for either system, or change `DATASET_POPULATION`/`SYSTEM_INDEX` to explore others.
+## Generating the catalog
 
-## Getting the simulated data
+The generator is the `epochalypse` package in [`src/`](src/epochalypse/), driven by the scripts in
+[`scripts/`](scripts/). [`PIPELINE.md`](PIPELINE.md) describes the stellar sample, the companion populations,
+the epoch simulation and how to run it on a laptop or a Slurm cluster; [`PERIODOGRAMS.md`](PERIODOGRAMS.md)
+describes the `kepmodel` period search, its calibration and its output tables. Both are MPI-parallel and
+deterministic per source: every random stream is seeded from the Gaia source id, so any subset can be
+regenerated in any order and reproduces exactly.
 
-The simulated data products (`outputs/data/`, including `simulated_astrometry.h5`) are not committed to this repository. The current version (as of August 14th, 2026) can be downloaded from here (please note this catalog is still in development and subject to change!):
+## Layout
 
-**[Simulated Gaia DR4 astrometry data](https://drive.google.com/file/d/1HKK3-_GU_-micGgTHkSUt_Wl47KqXRsF/view?usp=sharing)**
-
-Unzip/place the contents so that `outputs/data/simulated_astrometry.h5` (and the accompanying CSVs) sit at that path relative to the repo root — this is what `fit_astrometric_orbits.ipynb` and the other notebooks expect.
-
-## Pipeline notebooks
-
-The tutorial notebook above is sufficient for exploring orbit recovery on pre-simulated data. The full generation pipeline, in order, is:
-
-1. [`load_stars.ipynb`](load_stars.ipynb) — builds the parent Gaia-like stellar sample (positions, parallaxes, photometry, Gaia scanning-law metadata) and interpolates stellar mass/radius from the Pecaut & Mamajek (2013) sequence (`pecaut_mamjek.txt`). Produces `outputs/data/stars.csv`.
-2. [`sim_planets.ipynb`](sim_planets.ipynb) — synthesizes single- and multi-planet populations around the stellar sample, using both an "unfiltered" agnostic prior and an "SNR-filtered" prior that preferentially samples systems near Gaia's astrometric detection threshold. Produces the `outputs/data/agnostic_pop_*.csv` population tables.
-3. [`sim_astrometry.ipynb`](sim_astrometry.ipynb) — simulates per-epoch Gaia DR4-like along-scan astrometric measurements for each system (via `jaxoplanet`), including realistic Gaia DR3-calibrated uncertainty modeling. Produces `outputs/data/simulated_astrometry.h5` and the per-system CSVs.
-4. [`fit_astrometric_orbits.ipynb`](fit_astrometric_orbits.ipynb) — the tutorial described above; fits 0/1/2-planet models back to the simulated epochs.
-
-## Write-up
-
-A manuscript describing the simulation methodology in detail ("Simulating the Gaia DR4 Epochalypse") is in progress. In the meantime, if you use this dataset, please reference this GitHub repository.
+```
+src/epochalypse/   the generator + characterization package
+scripts/           catalog generation and periodogram search (laptop or Slurm)
+tests/             self-checks that need only the committed inputs
+data/              small committed inputs (Pecaut & Mamajek table, GOST transit map, a sample subset)
+catalog/           the server mirror (gitignored except the download script)
+tutorials/         the orbit-fitting tutorial
+analysis/          one notebook per paper figure, paperfig.py, paper_figures/, external inputs in data/
+```
 
 ## Environment
 
-The notebooks were run in a conda environment (`epochalypse-arm64`) with `jax`, `numpyro`, `jaxoplanet`, `pandas`, `astropy`, `pyarrow`, and `matplotlib`.
+Dependencies are pinned by `uv.lock`, which records the versions the catalog was generated with:
+
+```bash
+uv sync --frozen
+uv run python tests/test_pipeline.py
+```
+
+The notebooks need a few extras (remote reads, Jupyter, NumPyro, corner) and a registered kernel; the
+commands are in [`analysis/README.md`](analysis/README.md). The figures use `usetex`, so a TeX installation
+with Computer Modern is required.
+
+## Citation
+
+A manuscript describing the catalog is in preparation. Until it is out, please cite this repository if you
+use the data. The Lammers & Winn (2025) release used in Figs. 8 and 9 is included under its MIT license in
+`analysis/data/LW25_GaiaForecasts/`; the DR4 prerelease epochs in `analysis/data/dr4_prerelease/` are ESA
+data (see the `readme.txt` there for the license and credit).
 
 ## Team
 
-This dataset was generated by a collaboration of people aiming to develop analysis tools for Gaia DR4. This project started at a Workshop at the Flatiron Institute, Center for Astrophysics ("Tooling up for Gaia DR4") in April 2026.
+This dataset was generated by a collaboration of people aiming to develop analysis tools for Gaia DR4. The
+project started at the "Tooling up for Gaia DR4" workshop at the Flatiron Institute, Center for
+Computational Astrophysics, in April 2026.
