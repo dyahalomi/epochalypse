@@ -8,17 +8,19 @@ that fits orbits to the simulated epochs, and the notebooks that make every figu
 
 ## The catalog
 
-The catalog is served at {fill with zenodo link} in the layout
-the generator writes (`data/` for the stellar sample and the injected-solutions truth tables, `periodograms/`
-for the characterization tables). Three populations are simulated for the same 5,040,328 stars, with zero,
+The catalog is archived on Zenodo at {fill with zenodo link}. `catalog/download_catalog.sh` lays it out
+the way the generator writes it (`data/` for the stellar sample, the injected-solutions truth tables and the epoch
+shards, `periodograms/` for the characterization tables). Three populations are simulated for the same 5,040,328 stars, with zero,
 one and two companions, plus a high-SNR selection of each companion population. The semi-major-axes are drawn
 log-uniform on 0.03–100 AU and the per-epoch noise is calibrated to Gaia DR3 performance.
 
-[`catalog/download_catalog.sh`](catalog/download_catalog.sh) mirrors into `catalog/` the ~13.5 GB that the
-tutorial and the figure notebooks read (resumable; rerun it to finish an interrupted copy). It deliberately
-skips the 28.6 GB of epoch shards and the 711 GB of raw periodogram curves; the notebooks fetch the few
-rows of those they need straight off the server by HTTP range request. A Zenodo deposit of the catalog is
-in preparation.
+[`catalog/download_catalog.sh`](catalog/download_catalog.sh) fetches into `catalog/` the ~13.5 GB of tables
+that the tutorial and the figure notebooks read (resumable; rerun it to finish an interrupted copy). The epoch
+shards (one 10 GB tar per population on Zenodo, 28.6 GB unpacked) are fetched only on request,
+`download_catalog.sh --shards 1_companion` for instance; the tutorial needs the one- and two-companion shards,
+Fig. 6 the one-companion shards and Fig. 2 the zero-companion shards. Nothing in the repository reads the
+catalog over the network: a notebook that cannot find what it needs under `catalog/` stops with a message
+saying what to download.
 
 ## Start here: the orbit-fitting tutorial
 
@@ -54,7 +56,7 @@ src/epochalypse/   the generator + characterization package
 scripts/           catalog generation and periodogram search (laptop or Slurm)
 tests/             self-checks that need only the committed inputs
 data/              small committed inputs (Pecaut & Mamajek table, GOST transit map, a sample subset)
-catalog/           the server mirror (gitignored except the download script)
+catalog/           the catalog (gitignored except the download script)
 tutorials/         the orbit-fitting tutorial
 analysis/          one notebook per paper figure, paperfig.py, paper_figures/, external inputs in data/
 ```

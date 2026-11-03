@@ -6,8 +6,8 @@ the paper-wide 10,000-star subsample rule, the parent-sample cuts, the sky-map
 helpers, the population and characterization loaders (in the column vocabulary
 the figure code reads), the three-class periodogram classification with its
 palette and labels, the constant-SNR_tot loci, the joint mass-period figure,
-the nine-periodogram gallery, and a reader that pulls one system's epochs off
-the catalog server rather than requiring the 28 GB of epoch shards locally.
+the nine-periodogram gallery, and a reader that pulls one system's epochs out of the local epoch
+shards (cached per system, so a shard is opened once per system).
 
 The physics and the periodogram come from the generator package itself
 (``src/epochalypse`` at the repository root): the main-sequence label, the
@@ -19,14 +19,14 @@ Layout this module assumes (the repository root)::
 
     epochalypse/
         src/epochalypse/        the generator + characterization package
-        catalog/                mirror of the server (download_catalog.sh)
-            data/               stars.csv, injected_solutions_*.parquet, index/
+        catalog/                the catalog, as download_catalog.sh lays it out
+            data/               stars.csv, injected_solutions_*.parquet, index/, simulated_astrometry/
             periodograms/       characterization_*.parquet, calibration.json, ...
         analysis/
             paperfig.py         this file
             Fig*_*.ipynb        one notebook per paper figure
             data/               external inputs (DR4 prerelease, LW26 release)
-            cache/              column extracts and fetched epochs (rebuilt on demand)
+            cache/              column extracts and per-system epochs (rebuilt on demand)
             paper_figures/          the figures as they go in the paper (each notebook's last cell)
             supplementary_figures/  intermediate and alternative versions shown earlier
 """
@@ -54,8 +54,19 @@ EXTERNAL = ANALYSIS / "data"
 CACHE = ANALYSIS / "cache"
 PAPER_FIG_DIR = ANALYSIS / "paper_figures"           # the figures as they go in the paper
 SUPP_FIG_DIR = ANALYSIS / "supplementary_figures"    # intermediate / alternative versions
-SERVER = "https://users.flatironinstitute.org/~apricewhelan/epochalypse"
 N_SHARDS = 320
+SHARDS_DIR = DATA_DIR / "simulated_astrometry"
+
+# Nothing here reaches over the network: the catalog has to be on disk, in the
+# layout catalog/download_catalog.sh produces. Fail at import, with the fix, rather
+# than deep inside a notebook.
+_REQUIRED = (DATA_DIR / "stars.csv", PGRAM_DIR / "calibration.json")
+if not all(f.exists() for f in _REQUIRED):
+    raise FileNotFoundError(
+        "the epochalypse catalog was not found under "
+        f"{CATALOG}\n  expected at least: "
+        + ", ".join(str(f.relative_to(ROOT)) for f in _REQUIRED)
+        + "\n  fetch it with catalog/download_catalog.sh (see the README).")
 
 for _d in (CACHE, PAPER_FIG_DIR, SUPP_FIG_DIR):
     _d.mkdir(parents=True, exist_ok=True)
@@ -72,9 +83,9 @@ from epochalypse import constants as K  # noqa: E402
 from epochalypse import stars as S  # noqa: E402  (Pecaut & Mamajek, the main-sequence label)
 from epochalypse.periodogram import config as PC  # noqa: E402
 
-# The generator's own path helpers, pointed at the server mirror: C.stars_csv(),
+# The generator's own path helpers, pointed at the local catalog: C.stars_csv(),
 # C.truths(population, high_snr) and PC.calibration_path() then resolve inside
-# catalog/, which is the same layout the server has.
+# catalog/, which has the layout the generator writes.
 C.set_output_root(CATALOG)
 PC.set_output_root(PGRAM_DIR)
 
@@ -1111,30 +1122,30 @@ def examples(df, population_title, *, classify, periodogram, epochs_for, ax_x, a
 
 
 # ==========================================================================
-# Epochs off the server, one system at a time
+# Epochs out of the shards, one system at a time
 # ==========================================================================
-# The epoch shards are 28.6 GB and are not mirrored. A system's epochs are a few
-# hundred rows of one ~25 MB shard, addressed by the (shard, shard_row) the
-# characterization tables carry, so they are read over HTTP range requests --
-# only the row groups that hold the system -- and cached locally.
+# A system's epochs are a few hundred rows of one ~25 MB shard, addressed by the
+# (shard, shard_row) the characterization tables carry. Only the row groups that
+# hold the system are read, and the result is cached per system under cache/.
+# The shards (28.6 GB) are the one part of the catalog download_catalog.sh does
+# not fetch by default; see its --shards option.
 EPOCH_COLUMNS = ["obs_time_tcb", "scan_pos_angle", "parallax_factor_al",
                  "centroid_pos_al", "centroid_pos_error_al"]
 
 
-def _http_fs():
-    import fsspec
-
-    return fsspec.filesystem("https", block_size=4 * 2**20)
-
-
-def shard_url(population, kind, shard, n_shards=N_SHARDS):
-    """URL of one epochs/truths shard on the server."""
-    return (f"{SERVER}/data/simulated_astrometry/{population}/"
-            f"{kind}_rank{shard:05d}_of_{n_shards:05d}.parquet")
+def shard_path(population, kind, shard, n_shards=N_SHARDS):
+    """Path of one epochs/truths shard; raises with the fix if it is not on disk."""
+    path = SHARDS_DIR / population / f"{kind}_rank{shard:05d}_of_{n_shards:05d}.parquet"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"epoch shard not found: {path}\n  the {population} shards are not downloaded by "
+            f"default; run catalog/download_catalog.sh --shards {population} (unpacks "
+            f"simulated_astrometry_{population}.tar from the Zenodo record into catalog/data/).")
+    return path
 
 
 def fetch_epochs(population, shard, gaia_source_id, n_shards=N_SHARDS, verbose=True):
-    """One system's epoch table (sorted by time), from the server or the local cache."""
+    """One system's epoch table (sorted by time), from the per-system cache or its shard."""
     import pyarrow.parquet as pq
 
     cache_dir = CACHE / "epochs" / population
@@ -1143,10 +1154,10 @@ def fetch_epochs(population, shard, gaia_source_id, n_shards=N_SHARDS, verbose=T
     if cached.exists():
         return pd.read_parquet(cached)
     target = str(int(gaia_source_id))
-    url = shard_url(population, "epochs", shard, n_shards)
+    url = shard_path(population, "epochs", shard, n_shards)
     if verbose:
-        print(f"  fetching epochs of {target} from shard {shard:05d} ...", flush=True)
-    with _http_fs().open(url) as handle:
+        print(f"  reading epochs of {target} from shard {shard:05d} ...", flush=True)
+    with open(url, "rb") as handle:
         pf = pq.ParquetFile(handle)
         pieces = []
         for group in range(pf.num_row_groups):
@@ -1219,8 +1230,8 @@ def sigma_reported_cache(population="0_companion", n_shards=N_SHARDS, rebuild=Fa
 
     The catalog writes ``sigma_reported_i = (1 + 0.1 xi_i) sigma_formal`` per epoch; the
     figure compares DR4 against what a user reads off the epoch tables, so the median over
-    each star's epochs is taken from the shards themselves (two columns of each, streamed
-    from the server) rather than recomputed from the noise-model ingredients.
+    each star's epochs is taken from the shards themselves (two columns of each of the 320
+    local shards) rather than recomputed from the noise-model ingredients.
     """
     from concurrent.futures import ThreadPoolExecutor
 
@@ -1229,19 +1240,18 @@ def sigma_reported_cache(population="0_companion", n_shards=N_SHARDS, rebuild=Fa
     path = CACHE / f"sigma_reported_median_{population}.parquet"
     if path.exists() and not rebuild:
         return pd.read_parquet(path)
-    # One part file per shard, so an interrupted build resumes where it stopped; the
-    # reads are HTTP-latency bound, so several run at once.
+    # One part file per shard, so an interrupted build resumes where it stopped.
     part_dir = CACHE / f"sigma_reported_parts_{population}"
     part_dir.mkdir(parents=True, exist_ok=True)
-    fs = _http_fs()
+    for shard in range(n_shards):          # fail before any work if a shard is missing
+        shard_path(population, "epochs", shard, n_shards)
 
     def one(shard):
         part = part_dir / f"shard{shard:05d}.parquet"
         if part.exists():
             return part
-        url = shard_url(population, "epochs", shard, n_shards)
-        with fs.open(url) as handle:
-            table = pq.ParquetFile(handle).read(columns=["gaia_source_id", "centroid_pos_error_al"])
+        path = shard_path(population, "epochs", shard, n_shards)
+        table = pq.read_table(path, columns=["gaia_source_id", "centroid_pos_error_al"])
         d = table.to_pandas()
         d["gaia_source_id"] = d["gaia_source_id"].astype("int64")
         g = d.groupby("gaia_source_id")["centroid_pos_error_al"]

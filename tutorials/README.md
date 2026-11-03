@@ -9,9 +9,10 @@
 The notebook reads the catalog mirrored in `../catalog/` (gitignored; `../catalog/download_catalog.sh` fetches it):
 the injected-solutions tables (`data/injected_solutions_*.parquet`) for the truth and the
 characterization tables (`periodograms/characterization_*.parquet`) for the shard that holds each
-system's epochs. The epoch shards themselves (28.6 GB) are not mirrored; a system's few hundred
-epochs are read straight off the catalog server by HTTP range request and cached under `cache/epochs/`.
-If `../catalog/data/simulated_astrometry/` exists locally, it is used instead.
+system's epochs, and the epoch shards of `data/simulated_astrometry/1_companion/` and `2_companion/`
+for the epochs themselves (`../catalog/download_catalog.sh --shards 1_companion 2_companion`). A system's
+few hundred epochs are read out of its shard and cached under `cache/epochs/`. Nothing is read over the
+network; if the catalog or a shard is missing the notebook stops with a message saying what to download.
 
 ## Running
 
@@ -21,7 +22,7 @@ Same environment as the figure notebooks in `../analysis/` (the generator's lock
 ```bash
 cd ..
 uv sync --frozen
-uv pip install --python .venv/bin/python fsspec aiohttp requests jupyterlab ipykernel nbconvert numpyro corner
+uv pip install --python .venv/bin/python jupyterlab ipykernel nbconvert numpyro corner
 .venv/bin/python -m ipykernel install --user --name epochalypse-figs --display-name "Python (epochalypse figures)"
 ```
 

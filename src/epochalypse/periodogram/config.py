@@ -40,8 +40,7 @@ PARQUET_COMPRESSION = _cat.PARQUET_COMPRESSION
 #
 # Defaults to the generator's own output root, so a checkout that has already
 # generated a catalog needs no `--catalog-root` at all. Point it elsewhere for a
-# catalog delivered as a directory, e.g.
-# `--catalog-root ../flatiron_server_run_500pc/epochalypse`.
+# catalog delivered as a directory, e.g. `--catalog-root ../catalog`.
 CATALOG_ROOT = _cat.OUTPUT_ROOT
 
 

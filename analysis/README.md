@@ -24,17 +24,18 @@ figure a notebook draws (an intermediate step, an alternative version) goes to
 10,000-star subsample rule, the parent-sample cuts, the sky-map helpers, the loaders that put the
 truth and characterization tables into the vocabulary the figure code reads, the three-class
 periodogram classification with its palette, the constant-SNR$_{\rm tot}$ loci, the joint and
-gallery figures, and a reader that fetches one system's epochs off the catalog server. The
+gallery figures, and a reader that pulls one system's epochs out of its shard. The
 physics -- the main-sequence label, the noise model, the trial-period grid and the `kepmodel`
 search -- is imported from the generator package in `../src/epochalypse`, not copied, so
 the figures are built with the code that built the catalog.
 
 ## Inputs
 
-* `../catalog/` -- the server mirror, gitignored (`../catalog/download_catalog.sh` fetches it; see the
-  comment there for what is deliberately left out: the 711 GB of raw periodogram curves and the
-  28.6 GB of epoch shards). Fig. 6 and Fig. 2 read the few epoch rows they need straight off the
-  server, by HTTP range request, and cache them under `cache/`.
+* `../catalog/` -- the catalog, gitignored (`../catalog/download_catalog.sh` fetches the tables; the
+  epoch shards only with `--shards`). Fig. 6 needs the `1_companion` shards and Fig. 2 the
+  `0_companion` shards on disk; both read only the rows they need and cache them under `cache/`.
+  Everything else runs from the tables. Nothing is read over the network: `paperfig` raises at
+  import if the catalog is missing, and the epoch reader raises naming the shards to download.
 * `data/dr4_prerelease/` -- ESA's DR4 prerelease epoch astrometry for 12 sources (Fig. 2).
 * `data/LW25_GaiaForecasts/` -- the DR4 files of the Lammers & Winn (2026) release and the
   exoplanet-archive export their Figure 1 notebook used (Figs. 8, 9); MIT-licensed, their
@@ -45,17 +46,17 @@ the figures are built with the code that built the catalog.
   the recorded values otherwise.
 
 `cache/` is rebuilt on demand (the column extract of `stars.csv`, the per-star median of
-$\sigma_{\rm reported}$ streamed from the epoch shards, fetched epochs) and can be deleted.
+$\sigma_{\rm reported}$ read from the epoch shards, per-system epochs) and can be deleted.
 
 ## Running
 
-The notebooks run in the generator's locked environment plus a few extras (remote reads and
-Jupyter), set up once from the repository root as
+The notebooks run in the generator's locked environment plus a few extras (Jupyter and the
+kernel), set up once from the repository root as
 
 ```bash
 cd ..
 uv sync --frozen                                   # the locked environment, in .venv/
-uv pip install --python .venv/bin/python fsspec aiohttp requests jupyterlab ipykernel nbconvert
+uv pip install --python .venv/bin/python jupyterlab ipykernel nbconvert
 .venv/bin/python -m ipykernel install --user --name epochalypse-figs \
     --display-name "Python (epochalypse figures)"
 ```
