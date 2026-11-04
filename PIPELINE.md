@@ -122,11 +122,13 @@ The submit scripts live in `scripts/mpi/` and are the source of truth —
 `4-periodograms.sh` and `5-periodogram-finish.sh` for the characterization.
 
 All three roots live in one place, `scripts/mpi/env.sh`, which every script
-sources:
+sources after `cd`ing to the checkout (`$HOME/work/epochalypse` in the scripts;
+edit that line and `SCRATCH` for your site):
 
 ```bash
-export DATA_ROOT=<scratch>/project-data/epochalypse      # delivered inputs, ~12 GB
-export OUT_ROOT=<scratch>/project-outputs/epochalypse    # the catalog, ~50 GB
+export SCRATCH=/path/to/scratch                          # the cluster's large filesystem
+export DATA_ROOT=$SCRATCH/project-data/epochalypse       # delivered inputs, ~12 GB
+export OUT_ROOT=$SCRATCH/project-outputs/epochalypse     # the catalog, ~50 GB
 export PGRAM_ROOT=$OUT_ROOT/periodograms                 # raw curves, ~915 GB
 ```
 

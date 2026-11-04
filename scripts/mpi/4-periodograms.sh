@@ -14,7 +14,7 @@
 # constraint here (~0.3 GB: one row group of epochs plus one shard's truths),
 # so take as many cores as the partition will give -- see PERIODOGRAMS.md.
 
-cd /mnt/home/apricewhelan/work/epochalypse
+cd $HOME/work/epochalypse        # the checkout
 source .venv/bin/activate
 source scripts/mpi/env.sh
 

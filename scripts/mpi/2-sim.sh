@@ -9,7 +9,7 @@
 #SBATCH -p cca
 #SBATCH --constraint=rome
 
-cd /mnt/home/apricewhelan/work/epochalypse
+cd $HOME/work/epochalypse        # the checkout
 source .venv/bin/activate
 source scripts/mpi/env.sh
 
