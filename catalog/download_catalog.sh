@@ -63,7 +63,7 @@ status=0
 for entry in "${TABLES[@]}"; do
   fetch $entry || status=1
 done
-for pop in "${SHARDS[@]}"; do
+for pop in ${SHARDS[@]+"${SHARDS[@]}"}; do   # (empty-array-safe under set -u on bash 3.2)
   tarf="simulated_astrometry_$pop.tar"
   if fetch "$tarf" "$tarf"; then
     echo "unpacking $tarf into data/ ..."
