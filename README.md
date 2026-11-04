@@ -8,7 +8,7 @@ that fits orbits to the simulated epochs, and the notebooks that make every figu
 
 ## The catalog
 
-The catalog is archived on Zenodo at {fill with zenodo link}. `catalog/download_catalog.sh` lays it out
+The catalog is archived on Zenodo at <https://doi.org/10.5281/zenodo.23789041>. `catalog/download_catalog.sh` lays it out
 the way the generator writes it (`data/` for the stellar sample, the injected-solutions truth tables and the epoch
 shards, `periodograms/` for the characterization tables). Three populations are simulated for the same 5,040,328 stars, with zero,
 one and two companions, plus a high-SNR selection of each companion population. The semi-major-axes are drawn

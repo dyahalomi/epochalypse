@@ -14,7 +14,7 @@
 # The record holds every table flat plus one simulated_astrometry_<pop>.tar per
 # population; this script puts each where the notebooks expect it.
 set -uo pipefail
-RECORD="XXXXXXX"            # <- the Zenodo record number (digits only)
+RECORD="23789041"           # the Zenodo record number (doi 10.5281/zenodo.23789041)
 if ! [[ "$RECORD" =~ ^[0-9]+$ ]]; then
   echo "download_catalog.sh: set RECORD at the top of this script to the Zenodo record number" >&2
   exit 1
@@ -48,7 +48,8 @@ if [ "${1:-}" = "--shards" ]; then
 fi
 
 fetch() {  # fetch <served name> <local path>: resumed if partial, then size-checked
-  local name=$1 dest=$2 url="$BASE/$name?download=1" want have
+  local name=$1 dest=$2 want have
+  local url="$BASE/$name?download=1"
   want=$(curl -sSI -L "$url" | tr -d '\r' | awk 'tolower($1)=="content-length:"{print $2}' | tail -1)
   have=$(stat -f %z "$dest" 2>/dev/null || stat -c %s "$dest" 2>/dev/null || echo 0)
   if [ -n "$want" ] && [ "$have" = "$want" ]; then echo "ok    $dest"; return 0; fi
